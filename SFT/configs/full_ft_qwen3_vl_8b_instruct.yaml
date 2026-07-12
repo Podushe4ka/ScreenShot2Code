@@ -1,0 +1,33 @@
+model_name_or_path: "Qwen/Qwen3-VL-8B-Instruct"
+model_revision: "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
+torch_dtype: "bfloat16"
+attn_implementation: "flash_attention_2"
+
+max_length: 4096
+dataset_num_proc: 4
+remove_unused_columns: false
+
+
+output_dir: "../qwen3-vl-sft-output/full_ft"
+num_train_epochs: 3
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 4
+learning_rate: 2.0e-5
+warmup_ratio: 0.03
+weight_decay: 0.05
+optim: "adamw_torch"
+lr_scheduler_type: "cosine"
+
+logging_steps: 10
+eval_strategy: "no"
+save_strategy: "steps"
+save_steps: 500
+save_total_limit: 2
+
+bf16: true
+fp16: false
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+
+deepspeed: "configs/ds_z2_config.json"
