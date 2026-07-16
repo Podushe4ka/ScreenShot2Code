@@ -8,8 +8,8 @@
 Статус разбора:
 - ✅ [webcode2m.ipynb](webcode2m.ipynb) — WebCode2M / Vision2UI
 - ✅ [webui.ipynb](webui.ipynb) — WebUI
-- ⏳ [websight.ipynb](websight.ipynb) — WebUI
-- ⏳ датасет 4 — не разобран
+- ✅ [websight.ipynb](websight.ipynb) — WebUI
+- ⏳ датасет 4 — собранный русский синтетический датасет
 
 ## Как считается метрика в каждом датасете
 
