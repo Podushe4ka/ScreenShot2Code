@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+
+# Сгенерированные датасеты (регенерируются из ноутбуков, в git не версионим)
+websight_drafting_pilot/
+Data/websight_drafting_pilot/
