@@ -2,6 +2,9 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .eggs/
+.ruff_cache/
+.claude/
+train_res/
 
 .venv/
 
@@ -14,7 +17,10 @@ logs/
 *.pt
 *.safetensors
 
-data/
+# data/ holds the Python package (loader.py, token_len.py) — keep it tracked.
+# Ignore only the dataset artifacts that land inside it.
+data/websight20/
+*.arrow
 *.jsonl
 *.parquet
 

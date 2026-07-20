@@ -6,23 +6,25 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "accelerate>=1.14.0",
-    "datasets==4.4.1",
+    "datasets>=4.7,<5", 
     "deepspeed>=0.19.2",
     "numpy>=2.5.1",
-    "peft>=0.18.0",
+    "peft>=0.18.1",       
     "qwen-vl-utils>=0.0.14",
-    "torch==2.5.1",
-    "transformers==4.57.3",
-    "trl==0.22.0",
+    "torch>=2.6,<2.7",     
+    "torchvision>=0.21,<0.22",
+    "transformers>=5.13,<6",
+    "trl>=1.8,<2",       
 ]
 
 [[tool.uv.index]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu121", marker = "sys_platform == 'linux'" }]
+torch = [{ index = "pytorch-cu124", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu124", marker = "sys_platform == 'linux'" }]
 
 [dependency-groups]
 dev = [
@@ -30,4 +32,8 @@ dev = [
 ]
 
 [project.optional-dependencies]
-gpu = ["flash-attn>=2.0.0"]
+gpu = [
+    "flash-attn>=2.0.0",
+    "causal-conv1d>=1.4",
+    "flash-linear-attention>=0.2",
+]

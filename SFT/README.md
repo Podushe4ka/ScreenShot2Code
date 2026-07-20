@@ -1,3 +1,3 @@
 # SFT раздел
 
-Дообучение и обучение в стиле Fine tuning и LoRA
+Дообучение Qwen3.5-9B c применением LoRA, а также full - finetune

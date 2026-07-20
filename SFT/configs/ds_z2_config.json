@@ -1,4 +1,5 @@
-{"bf16":{
+{
+    "bf16":{
         "enabled": "auto"
     },
     "optimizer":{
@@ -28,9 +29,9 @@
         "reduce_bucket_size": 5e8,
         "contiguous_gradients": true
     },
-    "gradient_accumulating_steps": "auto",
+    "gradient_accumulation_steps": "auto",
     "gradient_clipping": "auto",
     "train_batch_size": "auto",
     "train_micro_batch_size_per_gpu": "auto",
     "wall_clock_breakdown": false
-}
+}   

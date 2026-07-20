@@ -1,10 +1,12 @@
-model_name_or_path: "Qwen/Qwen3-VL-8B-Instruct"
-model_revision: "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
+model_name_or_path: "Qwen/Qwen3.5-9B"
+model_revision: "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
 torch_dtype: "bfloat16"
 attn_implementation: "flash_attention_2"
 
-max_length: 4096
+max_length: 8192
 dataset_num_proc: 4
+# dataset_kwargs:
+#   skip_prepare_dataset: true
 remove_unused_columns: false
 
 
