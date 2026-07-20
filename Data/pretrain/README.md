@@ -12,7 +12,7 @@
 каждый источник:  load_dataset(streaming=True)
                        │  .map(normalize)     → общая схема {image, html, source}
                        │  .filter(...)        → отсев пустых/битых
-                       │  .cast_column(image) → единый тип
+                       │  (features=COMMON в .map → единый тип image)
                        ▼
         interleave_datasets(probabilities)    → микс потоков по весам
                        │  .shuffle(buffer)     → потоковый шафл
@@ -40,7 +40,7 @@
 
 ## Проверить перед боевым прогоном
 - Точные поля Web2Code; доступность/гейтинг датасетов.
-- Что `interleave_datasets` не спотыкается на `features` (выровнено `remove_columns` + `cast_column`).
+- Что `interleave_datasets` не спотыкается на `features` (выровнено `remove_columns` + `features=COMMON` прямо в `.map`).
 - Баланс весов; `SHUFFLE_BUFFER` держать **небольшим** — буфер шафла хранит распакованные
   картинки, память ≈ `buffer * размер картинки` (крупные скрины → большой буфер = краш ядра).
   Peek идёт по неперемешанному `mix`, шафл — отдельной ячейкой для обучения.
