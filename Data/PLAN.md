@@ -11,14 +11,17 @@
 |---|---|
 | [`PLAN.md`](PLAN.md) | Этот файл — план работ и дорожная карта |
 | [`list_data.md`](list_data.md) | Каталог датасетов: train-кандидаты, бенчмарки, смежное |
+| [`websight_to_contract.ipynb`](websight_to_contract.ipynb) + [`.md`](websight_to_contract.md) | Drafting-конвертер WebSight→контракт + инструкция |
 | [`analysis/`](analysis/) | Этап 0 — EDA корпусов (ноутбуки + заметки + методика метрик) |
 | [`papers/`](papers/) | PDF статей ко всем датасетам и методу ([индекс](papers/README.md)) |
 
 Формат передачи данных в SFT-трек — контракт `../SFT/DATA_FORMAT_CONTRACT.md`
 (ветка `sft`).
 
-**Статус:** ✅ Этап 0 (разведка) завершён · ▶ Этап 1 (drafting-датасет по
-контракту, разблокирует SFT MVP) · ⏳ Этапы 2–4 (рендерер, синтетика, масштаб).
+**Статус:** ✅ Этап 0 (разведка + токенные метрики, перепрогон на v0.2) · ▶ Этап 1
+(drafting-конвертер `websight_to_contract.ipynb` + инструкция — production-ручки готовы;
+блокеры precompile/re-render вынесены) · ⏳ Этапы 2–4 (рендерер, синтетика, масштаб).
+Работа по drafting — на ветке `data/drafting`.
 
 ---
 
@@ -37,9 +40,8 @@
 (б) генерации SFT/edit/polish данных.
 
 **Токенные результаты (метрика 3 — готово).** Длина кода считается токенайзером
-Qwen (`analysis/token_len.py`). Рабочий `max_length` кода: **WebSight ~768**
-(⚠ измерено на v0.1-срезе `WebSight_70k`, plain CSS — на v0.2/Tailwind **не
-переносится**, переизмерить после миграции), **WebCode2M ~9 920** (p99),
+Qwen (`analysis/token_len.py`). Рабочий `max_length` кода: **WebSight v0.2 ~896**
+(p99=851; было 768 на v0.1 — v0.2/Tailwind многословнее), **WebCode2M ~9 920** (p99),
 **WebUI 8 000 @ cap 8k** (теряем ~24% — тяжёлый хвост из инлайнового CSS дизайн-систем,
 не base64). Числа посчитаны **без визуальных токенов** (`IMAGE_TOKEN_BUDGET=0`) —
 реальный бюджет выше на ~1.1–1.2k токенов/картинку при 1280×720. Таблица —
@@ -103,26 +105,21 @@ Qwen (`analysis/token_len.py`). Рабочий `max_length` кода: **WebSight
 ## 3. Дорожная карта Data-трека
 
 ### Этап 1 — Drafting-датасет по контракту  ◀ ТЕКУЩИЙ ПРИОРИТЕТ (разблокирует SFT MVP)
-Источник: **WebSight v0.2** (`HuggingFaceM4/WebSight`, ~2M) — Tailwind, чистая
-синтетика. ⚠ Пилот `websight_drafting_pilot` собран на v0.1-срезе
-(`mrm8488/WebSight_70k`, plain CSS в `<style>`, **не Tailwind**) — временно, для
-сквозного пайплайна; мигрируем конвертер на v0.2 (см. TODO ниже).
-- [ ] конвертер WebSight → схема контракта (`Dataset.from_list` + `Features` из §1 контракта);
-- [ ] **миграция источника на v0.2** (`HuggingFaceM4/WebSight`) + переизмерение
-      бюджета токенов (v0.2-разметка Tailwind многословнее v0.1);
-- [ ] гигиена по §4 контракта:
-  - Tailwind **предкомпилированный** (Tailwind CLI → статический CSS в `<style>`), не Play CDN;
-  - **серые плейсхолдеры** вместо `<img>` — конвенция уже задана eval-треком (§1a),
-    использовать ровно её и одинаково в `target_html` И в скриншоте;
-  - HTML self-contained; без inline-стилей (если запрещено промптом);
-  - дедуп; **декотаминация** (домены Design2Code/Web2Code-eval/Vision2Web — никогда в train);
-  - единый **крупный** размер скриншота, согласованный с eval (§4a), текст читаем;
-- [ ] **бюджет токенов (измерено, `token_len.py`):** WebSight p99 кода = 725 токенов
-      **(⚠ на v0.1-срезе `WebSight_70k`, plain CSS — для v0.2/Tailwind переизмерить)** →
-      влезает в любой разумный `max_length` (даже 1024), фильтр почти не режет. Для реальных
-      данных (WebCode2M p99 ~9 920, WebUI тяжёлый хвост) — обязателен де-блоб + отсечка по
-      токенам; см. `analysis/dataset_notes.md`;
-- [ ] приёмка = чек-лист §6 контракта (грузится `load_from_disk`, поля по §2, 5 сэмплов вручную).
+Конвертер `websight_to_contract.ipynb` + инструкция `websight_to_contract.md`.
+Источник: **WebSight v0.2** (`HuggingFaceM4/WebSight`, ~1.92M) — Tailwind, чистая синтетика.
+
+Готово:
+- [x] конвертер WebSight v0.2 → схема контракта (`Dataset.from_list` + `Features`), `save_to_disk`;
+- [x] единый размер скриншота (`TARGET_SIZE`/`SIZE_MODE`, §4a); отсев висячих `<img>` (`DROP_IMG`);
+- [x] дедуп (SHA1) + **near-dup** (average-hash) + **декотаминация** по блоклисту доменов;
+- [x] фильтр по бюджету токенов (`MAX_TOKENS`, `token_len.count_tokens`); переизмерено на v0.2 (p99=851 → `max_length` 896);
+- [x] приёмка §6 (`load_from_disk`, поля §2, единый размер, нет `<img>`) + токенный отчёт + handoff-памятка.
+
+Осталось (блокеры боевого self-contained набора — вынесены как хуки):
+- [ ] **Tailwind precompile** (Tailwind CLI → статический CSS в `<style>`, убрать CDN) — хук `precompile_tailwind()`, нужен Node;
+- [ ] **плейсхолдеры + ре-рендер** — вернуть ~56% v0.2-сэмплов с картинками; нужен рендерер eval (Этап 2), хук `rerender_from_html()`;
+- [ ] согласовать `TARGET_SIZE` с вьюпортом eval и проставить `IMAGE_TOKEN_BUDGET`;
+- [ ] масштаб `N` (полный v0.2).
 
 ### Этап 2 — Детерминированный рендерер (HTML → PNG)
 Общий компонент: нужен и для `current_render` в polishing, и для RL-reward.
