@@ -11,14 +11,22 @@
 |---|---|
 | [`PLAN.md`](PLAN.md) | Этот файл — план работ и дорожная карта |
 | [`list_data.md`](list_data.md) | Каталог датасетов: train-кандидаты, бенчмарки, смежное |
+| [`websight_to_contract.ipynb`](websight_to_contract.ipynb) + [`.md`](websight_to_contract.md) | Drafting-конвертер WebSight→контракт + инструкция (ветка `data/drafting`) |
+| [`pretrain/`](pretrain/) | Стриминговый претрейн-микс датасетов (ветка `data/pretrain`) |
 | [`analysis/`](analysis/) | Этап 0 — EDA корпусов (ноутбуки + заметки + методика метрик) |
 | [`papers/`](papers/) | PDF статей ко всем датасетам и методу ([индекс](papers/README.md)) |
+
+**Ветки Data-трека** (все = `data/analysis` + свои файлы, различаются только вперёд):
+`data/analysis` (общий baseline: анализ + токенные метрики), `data/drafting`
+(+ drafting-конвертер), `data/pretrain` (+ претрейн-микс).
 
 Формат передачи данных в SFT-трек — контракт `../SFT/DATA_FORMAT_CONTRACT.md`
 (ветка `sft`).
 
-**Статус:** ✅ Этап 0 (разведка) завершён · ▶ Этап 1 (drafting-датасет по
-контракту, разблокирует SFT MVP) · ⏳ Этапы 2–4 (рендерер, синтетика, масштаб).
+**Статус:** ✅ Этап 0 (разведка + токенные метрики, перепрогон на v0.2) · ▶ Этап 1
+(drafting-конвертер `websight_to_contract.ipynb` + инструкция — production-ручки готовы;
+блокеры precompile/re-render вынесены) · ⏳ Этапы 2–4 (рендерер, синтетика, масштаб).
+Работа по drafting — на ветке `data/drafting`.
 
 ---
 
@@ -37,11 +45,13 @@
 (б) генерации SFT/edit/polish данных.
 
 **Токенные результаты (метрика 3 — готово).** Длина кода считается токенайзером
-Qwen (`analysis/token_len.py`). Рабочий `max_length` кода: **WebSight ~768**,
-**WebCode2M ~9 920** (p99), **WebUI 8 000 @ cap 8k** (теряем ~24% — тяжёлый хвост
-из инлайнового CSS дизайн-систем, не base64). Таблица — `analysis/dataset_notes.md`.
-Отсюда правило гигиены для реальных данных: **де-блоб (data-URI) + фильтр по токенам**
-(отсечка = `max_length`). WebUI для MVP не берём.
+Qwen (`analysis/token_len.py`). Рабочий `max_length` кода: **WebSight v0.2 ~896**
+(p99=851; было 768 на v0.1 — v0.2/Tailwind многословнее), **WebCode2M ~9 920** (p99),
+**WebUI 8 000 @ cap 8k** (теряем ~24% — тяжёлый хвост из инлайнового CSS дизайн-систем,
+не base64). Числа посчитаны **без визуальных токенов** (`IMAGE_TOKEN_BUDGET=0`) —
+реальный бюджет выше на ~1.1–1.2k токенов/картинку при 1280×720. Таблица —
+`analysis/dataset_notes.md`. Отсюда правило гигиены для реальных данных: **де-блоб
+(data-URI) + фильтр по токенам** (отсечка = `max_length`). WebUI для MVP не берём.
 
 ---
 
@@ -52,10 +62,15 @@ Qwen (`analysis/token_len.py`). Рабочий `max_length` кода: **WebSight
   по формату передачи.
 - **MVP:** отдать SFT-треку **только `task_type=="drafting"`**: `save_to_disk`,
   картинки встроены через `Image()` (байты, не пути), единая схема сэмпла.
-- **Состояние SFT-трека:** конфиги готовы (Qwen3-VL-8B-Instruct, LoRA r16,
-  `max_length=4096`), но тренировочный код — пустые стабы. **SFT заблокирован
-  на наших данных** — даже сотни-тысячи чистых drafting-пар разблокируют
-  пилотный LoRA-запуск.
+- **Состояние SFT-трека (обновлено по ветке `sft`):** модель зафиксирована —
+  **`Qwen/Qwen3.5-9B`**, **`max_length=8192`**, LoRA r16, flash-attn2, DeepSpeed ZeRO-2.
+  Тренировочный код написан: `data/loader.py` (`load_from_disk` → фильтр `task_type=='drafting'`),
+  `train/formatting.py` (`to_message` + `collate_fn` с маскировкой лейблов), `train/train_sft.py`,
+  скрипты `overfit20.py`/`smoke_test.py`. **SFT ждёт только данные** — наш drafting-датасет.
+- **⚠ Промпт SFT диктует формат таргета:** `DRAFTING_PROMPT` = «single self-contained HTML with
+  **precompiled Tailwind**, replace images with **gray placeholder blocks**». Значит для
+  согласованности данных с промптом **Tailwind-precompile + серые плейсхолдеры обязательны**
+  (наш смоук-пилот на CDN-Tailwind без картинок — только для проверки пайплайна).
 
 ---
 
@@ -72,6 +87,11 @@ Qwen (`analysis/token_len.py`). Рабочий `max_length` кода: **WebSight
 - **Бенч eval:** `SALT-NLP/Design2Code-hf` → Design2Code **никогда в train** (декотаминация).
 - **Всплывшие расхождения (вынесены в §4):** eval-baseline = `Qwen2.5-VL-3B-Instruct`;
   eval-промпт просит plain HTML с inline `<style>`, а НЕ Tailwind.
+- ⚠ **Про пилот и Tailwind:** текущий пилот собран на WebSight **v0.1** (plain HTML +
+  inline `<style>`) — он *случайно* совпадает с eval-промптом, конфликт «Tailwind vs
+  inline» на нём не проявляется. После миграции конвертера на **v0.2** (Tailwind)
+  таргеты станут Tailwind → конфликт снова актуален, а **Tailwind-precompile становится
+  обязательным** (иначе utility-классы у eval без скомпилированного CSS не отрендерятся).
 
 ---
 
@@ -95,20 +115,21 @@ Qwen (`analysis/token_len.py`). Рабочий `max_length` кода: **WebSight
 ## 3. Дорожная карта Data-трека
 
 ### Этап 1 — Drafting-датасет по контракту  ◀ ТЕКУЩИЙ ПРИОРИТЕТ (разблокирует SFT MVP)
-Источник: **WebSight** (уже Tailwind, уже чистый — минимум работы до первой поставки).
-- [ ] конвертер WebSight → схема контракта (`Dataset.from_list` + `Features` из §1 контракта);
-- [ ] гигиена по §4 контракта:
-  - Tailwind **предкомпилированный** (Tailwind CLI → статический CSS в `<style>`), не Play CDN;
-  - **серые плейсхолдеры** вместо `<img>` — конвенция уже задана eval-треком (§1a),
-    использовать ровно её и одинаково в `target_html` И в скриншоте;
-  - HTML self-contained; без inline-стилей (если запрещено промптом);
-  - дедуп; **декотаминация** (домены Design2Code/Web2Code-eval/Vision2Web — никогда в train);
-  - единый **крупный** размер скриншота, согласованный с eval (§4a), текст читаем;
-- [ ] **бюджет токенов (измерено, `token_len.py`):** WebSight p99 кода = 725 токенов →
-      влезает в любой разумный `max_length` (даже 1024), фильтр почти не режет. Для реальных
-      данных (WebCode2M p99 ~9 920, WebUI тяжёлый хвост) — обязателен де-блоб + отсечка по
-      токенам; см. `analysis/dataset_notes.md`;
-- [ ] приёмка = чек-лист §6 контракта (грузится `load_from_disk`, поля по §2, 5 сэмплов вручную).
+Конвертер `websight_to_contract.ipynb` + инструкция `websight_to_contract.md`.
+Источник: **WebSight v0.2** (`HuggingFaceM4/WebSight`, ~1.92M) — Tailwind, чистая синтетика.
+
+Готово:
+- [x] конвертер WebSight v0.2 → схема контракта (`Dataset.from_list` + `Features`), `save_to_disk`;
+- [x] единый размер скриншота (`TARGET_SIZE`/`SIZE_MODE`, §4a); отсев висячих `<img>` (`DROP_IMG`);
+- [x] дедуп (SHA1) + **near-dup** (average-hash) + **декотаминация** по блоклисту доменов;
+- [x] фильтр по бюджету токенов (`MAX_TOKENS`, `token_len.count_tokens`); переизмерено на v0.2 (p99=851 → `max_length` 896);
+- [x] приёмка §6 (`load_from_disk`, поля §2, единый размер, нет `<img>`) + токенный отчёт + handoff-памятка.
+
+Осталось (блокеры боевого self-contained набора — вынесены как хуки):
+- [ ] **Tailwind precompile** (Tailwind CLI → статический CSS в `<style>`, убрать CDN) — хук `precompile_tailwind()`, нужен Node;
+- [ ] **плейсхолдеры + ре-рендер** — вернуть ~56% v0.2-сэмплов с картинками; нужен рендерер eval (Этап 2), хук `rerender_from_html()`;
+- [ ] согласовать `TARGET_SIZE` с вьюпортом eval и проставить `IMAGE_TOKEN_BUDGET`;
+- [ ] масштаб `N` (полный v0.2).
 
 ### Этап 2 — Детерминированный рендерер (HTML → PNG)
 Общий компонент: нужен и для `current_render` в polishing, и для RL-reward.
@@ -140,9 +161,9 @@ Playwright+Chromium) + метрики `visual_eval_v3_multi`. Переиспол
 |---|---|---|
 | Серые плейсхолдеры | ✅ решено eval-треком — берём их конвенцию (§1a) | иначе трейн и eval разъедутся |
 | Размер скриншота / вьюпорт | ✅ есть у eval (Design2Code) — берём его размер | трейн и eval должны совпадать |
-| ⚠ **Модель расходится:** eval = Qwen2.5-VL-3B, SFT-конфиг = Qwen3-VL-8B, целимся в **Qwen3.5-VL 9B/4B** (мультимодальна, early-fusion, Apache-2.0; нужна `transformers` из git-main — пин 4.57.3 её не загрузит) | **все — приоритет** | зафиксировать один id, обновить конфиги SFT + eval-baseline + `TOKENIZER_ID` в ноутбуках |
+| ✅ **Модель зафиксирована SFT-треком: `Qwen/Qwen3.5-9B`, `max_length=8192`** | остаётся согласовать eval-baseline (был Qwen2.5-VL-3B) и `TOKENIZER_ID` в ноутбуках (сейчас Qwen3-VL-8B как прокси — счётчики близки) | трейн и eval на одной модели |
 | ⚠ **Tailwind vs inline-style:** SFT/Data хотят Tailwind, eval-промпт просит plain inline `<style>` | **все — приоритет** | если таргеты на Tailwind, а eval рендерит без скомпилированного CSS — utility-классы (кроме плейсхолдера) не отрендерятся |
-| Токенайзер и лимит длины | SFT-трек | фильтрация по бюджету токенов, `max_length` |
+| ⚠ **Численный конфликт `max_length`:** SFT-конфиг = **4096**, но рекомендация по WebCode2M = **9 920** (p99, ещё +~1.1–1.2k визуальных токенов/картинку). WebSight влезает, реальные данные — нет | SFT-трек | без согласования реальные пары (Этап 4) не влезут в окно; фильтрация по бюджету токенов |
 
 ---
 

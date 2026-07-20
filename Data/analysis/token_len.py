@@ -38,7 +38,13 @@ def compute_max_length(
     num_proc: int = 4,
     image_token_budget: int = 0,
 ) -> int:
-    """Токенный `max_length` по датасету формата контракта (версия SFT-трека)."""
+    """Токенный `max_length` по датасету формата контракта (версия SFT-трека).
+
+    NB: считает НЕ идентично `recommend_max_length`, которым пользуется EDA —
+    здесь `add_special_tokens=True` и поля склеены без разделителя, там
+    `add_special_tokens=False` по одному полю. Расхождение в пару токенов;
+    держать в голове при сверке чисел EDA ↔ SFT.
+    """
     lengths = dataset.map(
         lambda example: {
             "_len": len(
