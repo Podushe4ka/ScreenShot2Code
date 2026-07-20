@@ -82,7 +82,7 @@ def main():
     model_args = ModelConfig(
         model_name_or_path=MODEL_ID,
         model_revision=MODEL_REVISION,
-        torch_dtype="bfloat16",
+        dtype="bfloat16",
         use_peft=True,
         lora_r=16,
         lora_alpha=32,

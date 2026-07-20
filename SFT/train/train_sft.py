@@ -24,9 +24,8 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
     model = AutoModelForImageTextToText.from_pretrained(
         model_args.model_name_or_path,
         revision=model_args.model_revision,
-        # transformers v5 renamed the kwarg torch_dtype -> dtype (old one still
-        # works but warns). TRL's ModelConfig field is still called torch_dtype.
-        dtype=model_args.torch_dtype,
+        # transformers v5 and TRL v1 both renamed torch_dtype -> dtype.
+        dtype=model_args.dtype,
         attn_implementation=model_args.attn_implementation,
     )
 
