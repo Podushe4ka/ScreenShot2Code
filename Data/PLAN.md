@@ -11,9 +11,14 @@
 |---|---|
 | [`PLAN.md`](PLAN.md) | Этот файл — план работ и дорожная карта |
 | [`list_data.md`](list_data.md) | Каталог датасетов: train-кандидаты, бенчмарки, смежное |
-| [`websight_to_contract.ipynb`](websight_to_contract.ipynb) + [`.md`](websight_to_contract.md) | Drafting-конвертер WebSight→контракт + инструкция |
+| [`websight_to_contract.ipynb`](websight_to_contract.ipynb) + [`.md`](websight_to_contract.md) | Drafting-конвертер WebSight→контракт + инструкция (ветка `data/drafting`) |
+| [`pretrain/`](pretrain/) | Стриминговый претрейн-микс датасетов (ветка `data/pretrain`) |
 | [`analysis/`](analysis/) | Этап 0 — EDA корпусов (ноутбуки + заметки + методика метрик) |
 | [`papers/`](papers/) | PDF статей ко всем датасетам и методу ([индекс](papers/README.md)) |
+
+**Ветки Data-трека** (все = `data/analysis` + свои файлы, различаются только вперёд):
+`data/analysis` (общий baseline: анализ + токенные метрики), `data/drafting`
+(+ drafting-конвертер), `data/pretrain` (+ претрейн-микс).
 
 Формат передачи данных в SFT-трек — контракт `../SFT/DATA_FORMAT_CONTRACT.md`
 (ветка `sft`).
@@ -57,10 +62,15 @@ Qwen (`analysis/token_len.py`). Рабочий `max_length` кода: **WebSight
   по формату передачи.
 - **MVP:** отдать SFT-треку **только `task_type=="drafting"`**: `save_to_disk`,
   картинки встроены через `Image()` (байты, не пути), единая схема сэмпла.
-- **Состояние SFT-трека:** конфиги готовы (Qwen3-VL-8B-Instruct, LoRA r16,
-  `max_length=4096`), но тренировочный код — пустые стабы. **SFT заблокирован
-  на наших данных** — даже сотни-тысячи чистых drafting-пар разблокируют
-  пилотный LoRA-запуск.
+- **Состояние SFT-трека (обновлено по ветке `sft`):** модель зафиксирована —
+  **`Qwen/Qwen3.5-9B`**, **`max_length=8192`**, LoRA r16, flash-attn2, DeepSpeed ZeRO-2.
+  Тренировочный код написан: `data/loader.py` (`load_from_disk` → фильтр `task_type=='drafting'`),
+  `train/formatting.py` (`to_message` + `collate_fn` с маскировкой лейблов), `train/train_sft.py`,
+  скрипты `overfit20.py`/`smoke_test.py`. **SFT ждёт только данные** — наш drafting-датасет.
+- **⚠ Промпт SFT диктует формат таргета:** `DRAFTING_PROMPT` = «single self-contained HTML with
+  **precompiled Tailwind**, replace images with **gray placeholder blocks**». Значит для
+  согласованности данных с промптом **Tailwind-precompile + серые плейсхолдеры обязательны**
+  (наш смоук-пилот на CDN-Tailwind без картинок — только для проверки пайплайна).
 
 ---
 
@@ -151,7 +161,7 @@ Playwright+Chromium) + метрики `visual_eval_v3_multi`. Переиспол
 |---|---|---|
 | Серые плейсхолдеры | ✅ решено eval-треком — берём их конвенцию (§1a) | иначе трейн и eval разъедутся |
 | Размер скриншота / вьюпорт | ✅ есть у eval (Design2Code) — берём его размер | трейн и eval должны совпадать |
-| ⚠ **Модель расходится:** eval = Qwen2.5-VL-3B, SFT-конфиг = Qwen3-VL-8B, целимся в **Qwen3.5-VL 9B/4B** (мультимодальна, early-fusion, Apache-2.0; нужна `transformers` из git-main — пин 4.57.3 её не загрузит) | **все — приоритет** | зафиксировать один id, обновить конфиги SFT + eval-baseline + `TOKENIZER_ID` в ноутбуках |
+| ✅ **Модель зафиксирована SFT-треком: `Qwen/Qwen3.5-9B`, `max_length=8192`** | остаётся согласовать eval-baseline (был Qwen2.5-VL-3B) и `TOKENIZER_ID` в ноутбуках (сейчас Qwen3-VL-8B как прокси — счётчики близки) | трейн и eval на одной модели |
 | ⚠ **Tailwind vs inline-style:** SFT/Data хотят Tailwind, eval-промпт просит plain inline `<style>` | **все — приоритет** | если таргеты на Tailwind, а eval рендерит без скомпилированного CSS — utility-классы (кроме плейсхолдера) не отрендерятся |
 | ⚠ **Численный конфликт `max_length`:** SFT-конфиг = **4096**, но рекомендация по WebCode2M = **9 920** (p99, ещё +~1.1–1.2k визуальных токенов/картинку). WebSight влезает, реальные данные — нет | SFT-трек | без согласования реальные пары (Этап 4) не влезут в окно; фильтрация по бюджету токенов |
 

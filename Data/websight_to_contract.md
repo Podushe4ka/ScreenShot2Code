@@ -44,6 +44,18 @@
   `-v <OUT_DIR>:/data` → SFT читает `load_from_disk("/data")`.
 - Из handoff отдать SFT число **`max_length`** = `MAX_LENGTH_CODE` + `IMAGE_TOKEN_BUDGET`.
 
+### Согласование с реальным SFT-кодом (ветка `sft`)
+- **Модель зафиксирована:** `Qwen/Qwen3.5-9B`, в конфиге **`max_length=8192`** (наш WebSight-код
+  ~896 влезает с запасом). `TOKENIZER_ID` в конвертере для точного совпадения имеет смысл
+  выставить в `Qwen/Qwen3.5-9B` (нужна совместимая `transformers`; по умолчанию стоит прокси
+  Qwen3-VL-8B — счётчики близки).
+- **`SFT/data/loader.py`** делает `load_from_disk` → фильтр `task_type=='drafting'` — наша схема
+  потребляется как есть.
+- **`SFT/train/formatting.py` `DRAFTING_PROMPT`**: «single self-contained HTML with **precompiled
+  Tailwind**, replace images with **gray placeholder blocks**». → чтобы данные соответствовали
+  промпту, **Tailwind-precompile и серые плейсхолдеры обязательны** для боевого набора (см.
+  «Границы»); текущий CDN-Tailwind без картинок — только смоук для проверки пайплайна.
+
 ## Приёмка (контракт §6)
 Грузится `load_from_disk`; поля по §2; картинки `Image()`-байты; **единый размер**; при
 `DROP_IMG` — **нет висячих `<img>`**; 5 сэмплов глазами. Всё в ячейке «7. Приёмка».
