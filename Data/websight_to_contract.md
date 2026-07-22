@@ -8,10 +8,13 @@
 Стриминг WebSight → гигиена → `save_to_disk` → приёмка §6 → токенный отчёт → handoff-памятка.
 
 ## Предпосылки
-- Python-пакеты: `datasets`, `pillow`, `beautifulsoup4`, `transformers` (для токен-отчёта/фильтра).
+- Смоук-профиль: `datasets`, `pillow`, `beautifulsoup4`, `transformers` (для токен-отчёта/фильтра).
 - Запускать **из папки `Data/`** (конвертер делает `sys.path.append("analysis")` для `token_len.py`).
-- Для **полного** боевого набора дополнительно нужны (пока НЕ в этом ноутбуке, см. «Границы»):
-  Tailwind CLI/Node (precompile) и детерминированный рендерер eval (re-render).
+- **Боевой профиль** (self-contained + плейсхолдеры) дополнительно:
+  - `pip install pytailwindcss` — даёт standalone-бинарь `tailwindcss` (precompile, **без Node**);
+  - `pip install playwright && playwright install chromium` — ре-рендер скриншотов.
+  - ⚠ Реализации `precompile_tailwind`/`rerender_from_html` написаны, но **не прогнаны** — проверить
+    на первом боевом прогоне (per-page subprocess/рендер медленные — гонять на разумном `TARGET_COUNT`).
 
 ## Конфиг-ручки (ячейка «1. Импорты и конфиг»)
 
@@ -61,14 +64,23 @@
 Грузится `load_from_disk`; поля по §2; картинки `Image()`-байты; **единый размер**; при
 `DROP_IMG` — **нет висячих `<img>`**; 5 сэмплов глазами. Всё в ячейке «7. Приёмка».
 
-## Границы (что этот ноутбук НЕ делает — нужен внешний тулинг/другие треки)
-- **Tailwind precompile** (CDN → статический `<style>`): нужен Tailwind CLI/Node. Хук
-  `precompile_tailwind()`. Без него артефакт **НЕ self-contained** (v0.2 тянет Tailwind с CDN) —
-  ок для обучения, но не для детерминированного рендера eval.
-- **Плейсхолдеры + ре-рендер**: чтобы вернуть **~56%** v0.2-сэмплов с картинками (сейчас их режет
-  `DROP_IMG`), нужен рендерер eval (Этап 2) — отрендерить placeholder-версию в скриншот, чтобы
-  картинка соответствовала коду. Хук `rerender_from_html()`.
+## Профили: смоук vs боевой
 
-**Итого:** текущий выход — валидный drafting-датасет для **пилота LoRA** (пайплайн end-to-end).
-Полноценный **self-contained набор с картинками** разблокируется после Tailwind-precompile и
-рендерера eval.
+**Смоук (по умолчанию):** `APPLY_PLACEHOLDERS=False`, `PRECOMPILE_TAILWIND=False`, `DROP_IMG=True`.
+Быстро, без внешних тулов. Даёт валидный drafting-датасет для пилота LoRA (проверка пайплайна),
+но CDN-Tailwind и без картинок.
+
+**Боевой (self-contained + плейсхолдеры):** `APPLY_PLACEHOLDERS=True`, `PRECOMPILE_TAILWIND=True`
+(+ `pip install pytailwindcss playwright` и `playwright install chromium`). Пайплайн на сэмпл:
+1. `replace_images_with_placeholder` — `<img>` → серый блок (совпадает с eval-конвенцией и промптом SFT);
+2. `precompile_tailwind` — вкомпилировать Tailwind в `<style>`, убрать CDN → **self-contained**;
+3. `rerender_from_html` — перерисовать скриншот из финального HTML (картинка следует за кодом, офлайн).
+Так возвращаются ~56% сэмплов с картинками (их больше не режет `DROP_IMG`) и данные соответствуют
+промпту SFT («precompiled Tailwind, gray placeholders»).
+
+⚠ Реализации `precompile_tailwind`/`rerender_from_html` **написаны, но не прогонялись** — проверить
+на первом боевом запуске; они per-page (subprocess + рендер) и медленные, гонять на разумном
+`TARGET_COUNT`. По завершении вызвать `close_renderer()` (закрыть Playwright).
+
+**decontam / масштаб** — уже в пайплайне: `DECONTAM_DOMAINS` (фильтр доменов; для синтетики WebSight
+пусто) и count-driven сбор (`TARGET_COUNT`).
