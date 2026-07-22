@@ -64,12 +64,12 @@ def main():
     script_args = ScriptArguments(dataset_name=str(DATA_PATH))
     training_args = SFTConfig(
         output_dir="./train_res",
-        num_train_epochs=40,
+        num_train_epochs=15,
         learning_rate=2e-4,
         lr_scheduler_type="constant",
         warmup_ratio=0.0,
         logging_steps=1,
-        per_device_train_batch_size=1,
+        per_device_train_batch_size=4,
         gradient_accumulation_steps=1,
         save_strategy="no",
         bf16=True,

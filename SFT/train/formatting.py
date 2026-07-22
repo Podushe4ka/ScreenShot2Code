@@ -4,6 +4,7 @@ MIN_PIXELS = 256 * 32 * 32
 MAX_PIXELS = 1280 * 32 * 32
 
 RESPONSE_TEMPLATE = "<|im_start|>assistant\n"
+THINK_END = "</think>"
 
 
 # добавить другие виды обучающих примеров
@@ -40,6 +41,7 @@ def make_collate_fn(processor):
     response_token_ids = processor.tokenizer.encode(
         RESPONSE_TEMPLATE, add_special_tokens=False
     )
+    think_end_ids = processor.tokenizer.encode(THINK_END, add_special_tokens=False)
     pad_token_id = processor.tokenizer.pad_token_id
 
     def collate_fn(examples: list) -> dict:
@@ -59,11 +61,19 @@ def make_collate_fn(processor):
         for i in range(labels.size(0)):
             ids = batch["input_ids"][i].tolist()
             start = _find_subsequence(ids, response_token_ids)
-            if start is not None:
-                labels[i, : start + len(response_token_ids)] = -100
-            else:
+            if start is None:
                 labels[i, :] = -100
-
+                continue
+            boundary = start + len(response_token_ids)
+            end_of_think = _find_subsequence(ids[boundary:], think_end_ids)
+            if end_of_think is not None:
+                boundary += end_of_think + len(think_end_ids)
+                while (
+                    boundary < len(ids)
+                    and not processor.tokenizer.decode([ids[boundary]]).strip()
+                ):
+                    boundary += 1
+            labels[i, :boundary] = -100
         batch["labels"] = labels
         return batch
 

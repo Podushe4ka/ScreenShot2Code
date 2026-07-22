@@ -17,8 +17,7 @@ logs/
 *.pt
 *.safetensors
 
-# data/ holds the Python package (loader.py, token_len.py) — keep it tracked.
-# Ignore only the dataset artifacts that land inside it.
+
 data/websight20/
 *.arrow
 *.jsonl

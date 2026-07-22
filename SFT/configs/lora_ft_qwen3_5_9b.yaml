@@ -3,7 +3,7 @@ model_revision: "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
 dtype: "bfloat16"
 attn_implementation: "flash_attention_2"
 
-max_length: 8192 
+max_length: 11120
 dataset_num_proc: 4 #или 8
 # dataset_kwargs:
 #   skip_prepare_dataset: true
@@ -11,8 +11,9 @@ remove_unused_columns: false
 
 output_dir: "../qwen3-vl-sft-output/lora_ft"
 num_train_epochs: 3
-per_device_train_batch_size: 1
-gradient_accumulation_steps: 8
+
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 2
 learning_rate: 2.0e-4
 warmup_ratio: 0.03
 weight_decay: 0.01
