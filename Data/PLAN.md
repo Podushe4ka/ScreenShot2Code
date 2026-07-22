@@ -125,11 +125,12 @@ Qwen (`analysis/token_len.py`). Рабочий `max_length` кода: **WebSight
 - [x] фильтр по бюджету токенов (`MAX_TOKENS`, `token_len.count_tokens`); переизмерено на v0.2 (p99=851 → `max_length` 896);
 - [x] приёмка §6 (`load_from_disk`, поля §2, единый размер, нет `<img>`) + токенный отчёт + handoff-памятка.
 
-Осталось (блокеры боевого self-contained набора — вынесены как хуки):
-- [ ] **Tailwind precompile** (Tailwind CLI → статический CSS в `<style>`, убрать CDN) — хук `precompile_tailwind()`, нужен Node;
-- [ ] **плейсхолдеры + ре-рендер** — вернуть ~56% v0.2-сэмплов с картинками; нужен рендерер eval (Этап 2), хук `rerender_from_html()`;
-- [ ] согласовать `TARGET_SIZE` с вьюпортом eval и проставить `IMAGE_TOKEN_BUDGET`;
-- [ ] масштаб `N` (полный v0.2).
+Боевой профиль (`APPLY_PLACEHOLDERS=True` + `PRECOMPILE_TAILWIND=True`) — **реализован, но не прогнан**:
+- [x] **Tailwind precompile** (`precompile_tailwind` через standalone `pytailwindcss`, без Node) — вкомпилировать в `<style>`, убрать CDN;
+- [x] **плейсхолдеры + ре-рендер** (`rerender_from_html` через Playwright) — вернуть ~56% сэмплов с картинками; порядок: placeholder → precompile → rerender;
+- [x] **масштаб** — count-driven (`TARGET_COUNT`), не завязан на срез;
+- [ ] **прогнать боевой профиль** и проверить precompile/rerender вживую (нужны `pytailwindcss` + `playwright`; per-page медленно);
+- [ ] согласовать `TARGET_SIZE` с вьюпортом eval и проставить `IMAGE_TOKEN_BUDGET` (см. §4 — размер).
 
 ### Этап 2 — Детерминированный рендерер (HTML → PNG)
 Общий компонент: нужен и для `current_render` в polishing, и для RL-reward.
