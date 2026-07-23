@@ -88,6 +88,7 @@ def main():
         lora_alpha=32,
         lora_dropout=0.0,
         lora_target_modules=LORA_TARGET_MODULES,
+        attn_implementation="flash_attention_2"
     )
 
     trainer = build_trainer(script_args, training_args, model_args)
