@@ -75,7 +75,7 @@ def main():
         bf16=True,
         remove_unused_columns=False,
         # dataset_kwargs={"skip_prepare_dataset": True},
-        max_length=8192,
+        max_length=2200,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
     )
