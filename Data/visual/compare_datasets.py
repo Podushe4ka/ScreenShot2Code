@@ -6,10 +6,11 @@ compare_datasets.py — сетка 3x3 скриншотов из трёх дат
 
 Стриминг — без скачивания. На выходе PNG + окно (если есть дисплей).
     pip install datasets pillow matplotlib
-    python compare_datasets.py                 # 3x3, сохранит datasets_compare.png
-    python compare_datasets.py -n 4 -o out.png # по 4 (сетка 3xN)
+    python compare_datasets.py                 # 3x3 случайных из первых 100, каждый запуск разное
+    python compare_datasets.py -n 4 --seed 0   # воспроизводимо
 """
 import argparse
+import random
 
 import matplotlib.pyplot as plt
 from datasets import load_dataset
@@ -22,6 +23,7 @@ DATASETS = [
     ("WebUI",     "ronantakizawa/webui",          "train", "image"),
 ]
 THUMB = 512   # сторона квадратного превью, px
+POOL = 100    # из скольких первых примеров случайно выбираем n
 
 
 def crop_square(img, size=THUMB):
@@ -33,29 +35,32 @@ def crop_square(img, size=THUMB):
     return img.crop((left, top, left + s, top + s)).resize((size, size))
 
 
-def sample_images(path, split, n, field):
-    """Первые n примеров с непустой картинкой (стриминг, без скачивания)."""
-    out = []
+def sample_images(path, split, n, field, pool=POOL):
+    """Собираем первые `pool` картинок (стриминг) и случайно берём n — каждый запуск разное."""
+    thumbs = []
     for r in load_dataset(path, split=split, streaming=True):
         im = r.get(field)
         if im is None:
             continue
-        out.append(crop_square(im))
-        if len(out) >= n:
+        thumbs.append(crop_square(im))
+        if len(thumbs) >= pool:
             break
-    return out
+    return random.sample(thumbs, min(n, len(thumbs)))
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-n", type=int, default=3, help="сколько сэмплов на датасет")
+    ap.add_argument("--pool", type=int, default=POOL, help="из скольких первых выбирать случайно")
+    ap.add_argument("--seed", type=int, default=None, help="фикс. seed (иначе каждый запуск разное)")
     ap.add_argument("-o", "--out", default="datasets_compare.png")
     args = ap.parse_args()
+    random.seed(args.seed)   # None -> случайно каждый запуск
 
     rows = []
     for label, path, split, field in DATASETS:
-        print(f"беру {args.n} из {label} ({path})...")
-        rows.append((label, sample_images(path, split, args.n, field)))
+        print(f"беру {args.n} случайных из первых {args.pool} — {label} ({path})...")
+        rows.append((label, sample_images(path, split, args.n, field, args.pool)))
 
     fig, axes = plt.subplots(len(DATASETS), args.n, figsize=(args.n * 3, len(DATASETS) * 3.2))
     if args.n == 1:
