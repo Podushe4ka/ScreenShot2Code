@@ -15,9 +15,13 @@
 FROM mcr.microsoft.com/playwright/python:v1.55.0-noble
 
 RUN python -m pip install --no-cache-dir --upgrade pip && \
+    python -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
     python -m pip install --no-cache-dir \
         datasets transformers pillow beautifulsoup4 pytailwindcss tqdm playwright==1.55.0 && \
     python -m playwright install chromium
+
+# torch — CPU-версия, нужна только для --token-report (пересчёт токенов Qwen-токенайзером).
+# Основной прогон (сборка датасета) transformers/torch НЕ грузит — токен-функции ленивые.
 
 # Код монтируется томом: -v "$PWD":/work (convert_parallel.py + convert_lib.py + ../analysis/token_len.py)
 WORKDIR /work/Data/drafting

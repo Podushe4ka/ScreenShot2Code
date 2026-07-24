@@ -26,9 +26,26 @@ from datasets import Features, Image, Sequence, Value
 from PIL import Image as PILImage
 from urllib.parse import urlparse
 
-# --- count_tokens / recommend_max_length из ../analysis/token_len.py (без дублирования) ---
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "analysis"))
-from token_len import count_tokens, recommend_max_length  # noqa: E402
+# Подсчёт токенов вынесен в ЛЕНИВЫЕ обёртки: token_len -> transformers -> torch тянутся
+# ТОЛЬКО при реальном вызове count_tokens/recommend_max_length, а не при import convert_lib.
+# Так основной путь (сборка датасета, воркеры пула) не грузит transformers/torch.
+_ANALYSIS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "analysis")
+
+
+def count_tokens(text, tokenizer):
+    """Длина текста в токенах. Ленивая обёртка над ../analysis/token_len.py."""
+    if _ANALYSIS not in sys.path:
+        sys.path.append(_ANALYSIS)
+    from token_len import count_tokens as _ct
+    return _ct(text, tokenizer)
+
+
+def recommend_max_length(*args, **kwargs):
+    """Ориентир max_length. Ленивая обёртка над token_len.recommend_max_length."""
+    if _ANALYSIS not in sys.path:
+        sys.path.append(_ANALYSIS)
+    from token_len import recommend_max_length as _rml
+    return _rml(*args, **kwargs)
 
 # ------------------------------------------------------------------ константы
 RENDER_WIDTH = 1280                    # ширина вьюпорта ре-рендера; высота — по контенту

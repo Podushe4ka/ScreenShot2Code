@@ -84,6 +84,9 @@ def main():
     ap.add_argument("--n-workers", type=int, default=os.cpu_count())
     ap.add_argument("--out", default="./websight_drafting_pilot")
     ap.add_argument("--near-dup", type=int, default=None)
+    ap.add_argument("--token-report", action="store_true",
+                    help="пересчитать токены (тянет transformers/torch). Без флага — печатаем "
+                         "зафиксированные числа WebSight v0.2.")
     args = ap.parse_args()
 
     out_dir = os.path.abspath(args.out)
@@ -126,8 +129,14 @@ def main():
     assert widths == {RENDER_WIDTH}, f"ширины разные: {widths}"
     assert all(s["target_html"] and "<img" not in s["target_html"].lower() for s in ds2)
     print(f"[приёмка] OK: {len(ds2)} сэмплов, ширина {RENDER_WIDTH}, нет <img>, load_from_disk ✓")
-    token_report(list(ds2))
+    if args.token_report:
+        token_report(list(ds2))
+    else:
+        # Зафиксировано на WebSight v0.2 production (пересчёт: --token-report, нужен torch).
+        print("[токены] отчёт пропущен (--token-report для пересчёта). Известные WebSight v0.2:")
+        print("[токены]   код p99≈3860, картинка p99≈1672, всего p99≈5532 -> max_length≈6144")
     print(f"\n=== ПЕРЕДАЧА SFT ===\nпуть: {out_dir}\nзагрузка: load_from_disk(<путь>)\n"
+          f"max_length: 6144 (WebSight v0.2; пересчёт --token-report)\n"
           f"монтирование (§7): -v {out_dir}:/data")
 
 
