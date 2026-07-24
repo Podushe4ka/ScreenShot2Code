@@ -13,3 +13,6 @@ __pycache__/
 # Артефакты просмотра датасета (view_arrow.py)
 images/
 report.html
+
+# вывод visual/compare_datasets.py
+Data/visual/*.png
