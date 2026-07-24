@@ -137,15 +137,16 @@ def render_full(html_text, width):
 
 
 def process_one(html_text):
-    """Воркер: плейсхолдеры + precompile + рендер. Возвращает (target_html, png_bytes)
-    или None при ошибке (чтобы одна кривая страница не роняла весь пул)."""
+    """Воркер: плейсхолдеры + precompile + рендер. Возвращает
+    ("ok", target_html, png_bytes) или ("err", msg, traceback) — чтобы видеть причину."""
     try:
         html = replace_images_with_placeholder(html_text)
         html = precompile_tailwind(html)
         png = render_full(html, RENDER_WIDTH)
-        return html, png
-    except Exception:
-        return None
+        return ("ok", html, png)
+    except Exception as e:
+        import traceback
+        return ("err", f"{type(e).__name__}: {e}", traceback.format_exc())
 
 
 # ------------------------------------------------------------------ фаза 1
@@ -220,23 +221,38 @@ def main():
 
     htmls = collect_candidates(args.target, args.max_scan, args.near_dup)
 
+    # preflight: тест precompile+render на одной странице (в главном процессе) — сразу видно причину
+    print("[preflight] тест precompile + render...")
+    _t = process_one("<html><head><script src='https://cdn.tailwindcss.com'></script></head>"
+                     "<body><div class='bg-blue-500 text-white p-4 flex'>test</div></body></html>")
+    if _t[0] != "ok":
+        print("[preflight] ПРОВАЛ:\n" + _t[2])
+        raise SystemExit("precompile или render не работают — почини окружение. Частое: нет "
+                         "tailwindcss (pip install pytailwindcss) или chromium (playwright install chromium).")
+    print("[preflight] OK")
+
     # фаза 2: параллельно precompile + render
-    rows, errors = [], 0
+    rows, errs = [], []
+    from collections import Counter
     from tqdm import tqdm
     with ProcessPoolExecutor(max_workers=args.n_workers) as ex:
         for res in tqdm(ex.map(process_one, htmls, chunksize=4), total=len(htmls), desc="[фаза 2] render"):
-            if res is None:                        # воркер упал на этой странице
-                errors += 1
-                continue
-            html, png = res
-            rows.append({
-                "task_type": "drafting",
-                "images": [{"bytes": png, "path": None}],
-                "current_html": "",
-                "target_html": html,
-                "instruction": "",
-            })
-    print(f"[фаза 2] готово сэмплов: {len(rows)} | ошибок рендера: {errors}")
+            if res[0] == "ok":
+                _, html, png = res
+                rows.append({
+                    "task_type": "drafting",
+                    "images": [{"bytes": png, "path": None}],
+                    "current_html": "",
+                    "target_html": html,
+                    "instruction": "",
+                })
+            else:
+                errs.append((res[1], res[2]))
+    print(f"[фаза 2] готово сэмплов: {len(rows)} | ошибок: {len(errs)}")
+    for msg, cnt in Counter(m for m, _ in errs).most_common(3):
+        print(f"  ✗ {cnt}×  {msg}")
+    if not rows:
+        raise SystemExit("Все воркеры упали. Первый traceback:\n" + errs[0][1])
 
     # фаза 3: сохранить + приёмка + отчёт
     ds = Dataset.from_list(rows, features=FEATURES)
