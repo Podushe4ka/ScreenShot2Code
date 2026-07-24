@@ -11,7 +11,7 @@
 |---|---|
 | [`PLAN.md`](PLAN.md) | Этот файл — план работ и дорожная карта |
 | [`list_data.md`](list_data.md) | Каталог датасетов: train-кандидаты, бенчмарки, смежное |
-| [`websight_to_contract.ipynb`](websight_to_contract.ipynb) + [`.md`](websight_to_contract.md) | Drafting-конвертер WebSight→контракт + инструкция (ветка `data/drafting`) |
+| [`drafting/`](drafting/) | Drafting-конвертер (`convert_lib` + notebook + parallel + Docker + `view_arrow`) — ветка `data/drafting` |
 | [`pretrain/`](pretrain/) | Стриминговый претрейн-микс датасетов (ветка `data/pretrain`) |
 | [`analysis/`](analysis/) | Этап 0 — EDA корпусов (ноутбуки + заметки + методика метрик) |
 | [`papers/`](papers/) | PDF статей ко всем датасетам и методу ([индекс](papers/README.md)) |
@@ -24,8 +24,8 @@
 (ветка `sft`).
 
 **Статус:** ✅ Этап 0 (разведка + токенные метрики, перепрогон на v0.2) · ▶ Этап 1
-(drafting-конвертер `websight_to_contract.ipynb` + инструкция — production-ручки готовы;
-блокеры precompile/re-render вынесены) · ⏳ Этапы 2–4 (рендерер, синтетика, масштаб).
+(drafting-конвертер `drafting/` — production работает: параллельный батч через Docker,
+self-contained, ~5k за пару минут) · ⏳ Этапы 2–4 (рендерер, синтетика, масштаб).
 Работа по drafting — на ветке `data/drafting`.
 
 ---
@@ -115,7 +115,8 @@ Qwen (`analysis/token_len.py`). Рабочий `max_length` кода: **WebSight
 ## 3. Дорожная карта Data-трека
 
 ### Этап 1 — Drafting-датасет по контракту  ◀ ТЕКУЩИЙ ПРИОРИТЕТ (разблокирует SFT MVP)
-Конвертер `websight_to_contract.ipynb` + инструкция `websight_to_contract.md`.
+Конвертер — папка `drafting/` (логика в `convert_lib.py`; `convert.ipynb` интерактив,
+`convert_parallel.py` батч, `Dockerfile`, инструкция `drafting/README.md`).
 Источник: **WebSight v0.2** (`HuggingFaceM4/WebSight`, ~1.92M) — Tailwind, чистая синтетика.
 
 Готово:
