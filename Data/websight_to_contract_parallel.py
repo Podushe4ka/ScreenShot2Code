@@ -21,6 +21,7 @@ websight_to_contract.ipynb, он НЕ тронут.
 import argparse
 import hashlib
 import io
+import multiprocessing
 import os
 import re
 import shutil
@@ -235,7 +236,10 @@ def main():
     rows, errs = [], []
     from collections import Counter
     from tqdm import tqdm
-    with ProcessPoolExecutor(max_workers=args.n_workers) as ex:
+    # spawn (не fork): воркеры стартуют с чистого листа. Playwright ломается через fork,
+    # если браузер уже стартовал в главном процессе (preflight) -> 'dict' has no attribute '_object'.
+    _ctx = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=args.n_workers, mp_context=_ctx) as ex:
         for res in tqdm(ex.map(process_one, htmls, chunksize=4), total=len(htmls), desc="[фаза 2] render"):
             if res[0] == "ok":
                 _, html, png = res
