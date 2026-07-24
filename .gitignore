@@ -8,5 +8,8 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Сгенерированные датасеты (регенерируются из ноутбуков, в git не версионим)
-websight_drafting_pilot/
-Data/websight_drafting_pilot/
+*drafting_pilot*/
+
+# Артефакты просмотра датасета (view_arrow.py)
+images/
+report.html
