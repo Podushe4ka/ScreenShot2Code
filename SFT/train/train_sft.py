@@ -1,5 +1,4 @@
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from transformers import AutoModelForImageTextToText, AutoProcessor, set_seed
@@ -26,33 +25,26 @@ from train.run_info import format_meta, git_commit, make_run_name, save_run_info
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class SftScriptArguments(ScriptArguments):
-    """`ScriptArguments` из TRL плюс доля валидации.
+def _prepare_split(script_args, training_args, processor, split, required):
+    """Прочитать сплит, разложить в messages и отбраковать по бюджету токенов.
 
-    В TRL есть только имена сплитов (`dataset_train_split`), а датасет от
-    data-трека приходит одним куском, поэтому held-out отрезаем сами.
+    Возвращает (dataset|None, report|None).
     """
+    dataset = load_sft_dataset(script_args.dataset_name, split, required=required)
+    if dataset is None:
+        return None, None
 
-    val_size: float = field(
-        default=0.02,
-        metadata={"help": "Доля датасета под валидацию. 0 — обучение без eval."},
+    dataset = dataset.map(to_message)
+    if training_args.max_length is None:
+        return dataset, None
+
+    dataset, report = filter_by_length(
+        dataset,
+        processor,
+        max_length=training_args.max_length,
+        num_proc=training_args.dataset_num_proc,
     )
-
-
-def _split_dataset(dataset, val_size: float, seed: int):
-    """Отрезать held-out. Возвращает (train, eval|None)."""
-    if val_size <= 0:
-        return dataset, None
-    if int(len(dataset) * val_size) < 1:
-        logger.warning(
-            "val_size=%.3f на %d сэмплах даёт пустую валидацию — обучаемся без eval.",
-            val_size,
-            len(dataset),
-        )
-        return dataset, None
-    split = dataset.train_test_split(test_size=val_size, seed=seed, shuffle=True)
-    return split["train"], split["test"]
+    return dataset, report
 
 
 def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
@@ -70,34 +62,39 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
         max_pixels=MAX_PIXELS,
     )
 
-    dataset = load_sft_dataset(path=script_args.dataset_name)
-    dataset = dataset.map(to_message)
-    report = None
     if training_args.max_length is None:
         logger.warning(
             "max_length не задан: отбраковки по длине не будет. Один слишком "
             "длинный сэмпл может уронить ран по OOM."
         )
-    else:
-        dataset, report = filter_by_length(
-            dataset,
-            processor,
-            max_length=training_args.max_length,
-            num_proc=training_args.dataset_num_proc,
-        )
-        print(report.format())
 
-    train_dataset, eval_dataset = _split_dataset(
-        dataset, script_args.val_size, training_args.seed
+    # Замер бюджета и отбраковка идут ДО загрузки модели: узнать о том, что
+    # половина датасета не влезает, лучше сразу, а не по OOM через двадцать
+    # минут после начала скачивания весов.
+    train_dataset, train_report = _prepare_split(
+        script_args, training_args, processor, script_args.dataset_train_split, True
     )
+    if train_report is not None:
+        print(f"[{script_args.dataset_train_split}] {train_report.format()}")
+
+    eval_dataset, eval_report = _prepare_split(
+        script_args, training_args, processor, script_args.dataset_test_split, False
+    )
+    if eval_report is not None:
+        print(f"[{script_args.dataset_test_split}] {eval_report.format()}")
+
     if eval_dataset is None and training_args.eval_strategy != "no":
-        logger.warning("Валидационного сплита нет — отключаю eval_strategy.")
+        logger.warning(
+            "Сплита '%s' нет — отключаю eval_strategy.", script_args.dataset_test_split
+        )
         training_args.eval_strategy = "no"
 
     meta = {
         "model": model_args.model_name_or_path,
         "revision": model_args.model_revision,
         "dataset": script_args.dataset_name,
+        "train_split": script_args.dataset_train_split,
+        "eval_split": script_args.dataset_test_split if eval_dataset else None,
         "train_samples": len(train_dataset),
         "eval_samples": len(eval_dataset) if eval_dataset is not None else 0,
         "max_length": training_args.max_length,
@@ -105,8 +102,8 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
         "image_tokens": visual_token_budget(processor),
         "vision_factor": processor.image_processor.patch_size
         * processor.image_processor.merge_size,
-        "dropped_by_length": report.dropped if report else 0,
-        "dropped_share": round(report.dropped_share, 4) if report else 0.0,
+        "dropped_by_length": train_report.dropped if train_report else 0,
+        "dropped_share": round(train_report.dropped_share, 4) if train_report else 0.0,
         "peft": bool(peft_config),
         "git_commit": git_commit(),
     }
@@ -124,6 +121,7 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
     model = AutoModelForImageTextToText.from_pretrained(
         model_args.model_name_or_path,
         revision=model_args.model_revision,
+        # transformers v5 and TRL v1 both renamed torch_dtype -> dtype.
         dtype=model_args.dtype,
         attn_implementation=model_args.attn_implementation,
     )
@@ -142,7 +140,7 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
 
 def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    parser = TrlParser((SftScriptArguments, SFTConfig, ModelConfig))
+    parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
     script_args, training_args, model_args = parser.parse_args_and_config(args=argv)
     trainer = build_trainer(script_args, training_args, model_args)
     trainer.train()

@@ -22,10 +22,10 @@ from datasets import (
     Value,
     load_dataset,
 )
-from trl import ModelConfig, SFTConfig
+from trl import ModelConfig, ScriptArguments, SFTConfig
 
 from configs.gen import MODELS, max_length_for
-from train.train_sft import SftScriptArguments, build_trainer
+from train.train_sft import build_trainer
 
 DATA_PATH = Path("data/websight20")
 DEFAULT_MODEL = "Qwen/Qwen3.5-9B"
@@ -96,7 +96,9 @@ def main():
         max_length = max_length_for(entry)
     print(f"max_length={max_length}")
 
-    script_args = SftScriptArguments(dataset_name=str(DATA_PATH), val_size=0.0)
+    # Датасет сохранён одним куском, без сплитов: eval здесь и не нужен —
+    # цель проверки в том, чтобы train loss схлопнулся.
+    script_args = ScriptArguments(dataset_name=str(DATA_PATH))
     training_args = SFTConfig(
         output_dir="./train_res",
         num_train_epochs=15,

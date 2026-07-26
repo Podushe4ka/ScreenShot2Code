@@ -4,7 +4,10 @@ dtype: bfloat16
 attn_implementation: flash_attention_2
 dataset_num_proc: 16
 remove_unused_columns: false
-val_size: 0.02
+dataset_train_split: train
+dataset_test_split: validation
+dataloader_num_workers: 8
+tf32: true
 num_train_epochs: 3
 warmup_ratio: 0.03
 optim: adamw_torch

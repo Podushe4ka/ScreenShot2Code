@@ -16,7 +16,16 @@ import yaml
 from train.formatting import MAX_PIXELS
 
 OUT = Path("configs")
-TARGET_EFF_BATCH = 16
+
+# Сколько карт в запуске. Нужно здесь, потому что эффективный батч —
+# per_device_bs * accum * N_GPUS, и без учёта карт accumulation считается
+# неверно. При смене железа поменять.
+N_GPUS = 4
+
+# Эффективный батч (примеров на шаг оптимизатора), из него выводится
+# gradient_accumulation_steps.
+TARGET_EFF_BATCH = 64
+
 CODE_P99_TOKENS = 896
 
 PROMPT_OVERHEAD_TOKENS = 160
@@ -27,14 +36,20 @@ TARGET_MODULES = [
     "q_proj", "k_proj", "v_proj", "o_proj",
     "gate_proj", "up_proj", "down_proj",
 ]
-VAL_SIZE = 0.02
-
 SHARED_PARAMS = {
     "dtype": "bfloat16",
     "attn_implementation": "flash_attention_2",
     "dataset_num_proc": 16,
     "remove_unused_columns": False,
-    "val_size": VAL_SIZE,
+    # Сплиты берутся из датасета. dataset_test_split — это имя сплита, который
+    # попадёт в eval_dataset (номенклатура TRL, отдельного val_split там нет),
+    # поэтому кладём validation: настоящий тест на SFT не трогаем. Если такого
+    # сплита в датасете нет, eval отключается автоматически.
+    "dataset_train_split": "train",
+    "dataset_test_split": "validation",
+    "dataloader_num_workers": 8,
+    # A100: бесплатное ускорение матмулов.
+    "tf32": True,
     "num_train_epochs": 3,
     "warmup_ratio": 0.03,
     "optim": "adamw_torch",
@@ -67,6 +82,9 @@ MODELS = {
         "rev": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
         "factor": 32,
         "lora_bs": 16, "full_zero": 2,
+        # 4B на A100 80 ГБ: памяти хватает, чтобы отказаться от пересчёта
+        # активаций (это ~30% скорости) и поднять микробатч.
+        "full_bs": 8, "full_gc": False,
     },
     "qwen3_vl_4b": {
         "id": "Qwen/Qwen3-VL-4B-Instruct",
@@ -105,7 +123,7 @@ DEEPSPEED = {2: "configs/deepspeed_zero2.json", 3: "configs/deepspeed_zero3.json
 
 
 def _accum(microbatch: int) -> int:
-    return max(1, TARGET_EFF_BATCH // microbatch)
+    return max(1, TARGET_EFF_BATCH // (microbatch * N_GPUS))
 
 
 def visual_tokens(factor: int) -> int:
@@ -148,6 +166,9 @@ def lora_cfg(name: str, m: dict) -> dict:
 
 def full_cfg(name: str, m: dict) -> dict:
     lr = 1.0e-5 if m["lora_bs"] <= 2 else 2.0e-5
+    # Микробатч и пересчёт активаций задаются per-model: у маленьких моделей на
+    # 80 ГБ есть запас памяти, который выгоднее потратить на скорость.
+    bs = m.get("full_bs", 1)
     return {
         "model_name_or_path": m["id"],
         "model_revision": m["rev"],
@@ -155,9 +176,10 @@ def full_cfg(name: str, m: dict) -> dict:
         "max_length": max_length_for(m),
         "output_dir": f"../sft-output/full_ft_{name}",
         "run_name": f"full_ft_{name}",
-        "per_device_train_batch_size": 1,
-        "per_device_eval_batch_size": 1,
-        "gradient_accumulation_steps": _accum(1),
+        "per_device_train_batch_size": bs,
+        "per_device_eval_batch_size": bs,
+        "gradient_accumulation_steps": _accum(bs),
+        "gradient_checkpointing": m.get("full_gc", True),
         "learning_rate": lr,
         "weight_decay": 0.05,
         "deepspeed": DEEPSPEED[m["full_zero"]],
