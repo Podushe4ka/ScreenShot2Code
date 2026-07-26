@@ -57,11 +57,18 @@ SHARED_PARAMS = {
     "lr_scheduler_type": "cosine",
     "seed": 42,
     "logging_steps": 10,
+    # eval_steps/save_steps — ДОЛЯ от общего числа шагов (HF принимает float в
+    # [0,1)). Абсолютные числа тут вредны: на датасете в пару тысяч примеров
+    # шагов всего десятки, и save_steps=500 не срабатывает ни разу.
     "eval_strategy": "steps",
-    "eval_steps": 100,
+    "eval_steps": 0.1,
     "save_strategy": "steps",
-    "save_steps": 500,
+    "save_steps": 0.2,  # 5 чекпоинтов за ран, из них хранятся последние 2
     "save_total_limit": 2,
+    # Только веса, без состояний оптимизатора: чекпоинт full FT 4B — ~8 ГБ
+    # вместо ~56. Цена — упавший ран нельзя продолжить с чекпоинта, он
+    # начинается заново.
+    "save_only_model": True,
     "bf16": True,
     "fp16": False,
     "gradient_checkpointing": True,
@@ -159,7 +166,7 @@ def lora_cfg(name: str, m: dict) -> dict:
         "model_revision": m["rev"],
         **SHARED_PARAMS,
         "max_length": max_length_for(m),
-        "output_dir": f"../sft-output/lora_ft_{name}",
+        "output_dir": f"sft-output/lora_ft_{name}",
         "run_name": f"lora_ft_{name}",
         "per_device_train_batch_size": bs,
         "per_device_eval_batch_size": bs,
@@ -184,7 +191,7 @@ def full_cfg(name: str, m: dict) -> dict:
         "model_revision": m["rev"],
         **SHARED_PARAMS,
         "max_length": max_length_for(m),
-        "output_dir": f"../sft-output/full_ft_{name}",
+        "output_dir": f"sft-output/full_ft_{name}",
         "run_name": f"full_ft_{name}",
         "per_device_train_batch_size": bs,
         "per_device_eval_batch_size": bs,
