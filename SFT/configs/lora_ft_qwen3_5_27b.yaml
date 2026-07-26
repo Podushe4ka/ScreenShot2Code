@@ -1,5 +1,5 @@
-model_name_or_path: Qwen/Qwen3.5-9B
-model_revision: c202236235762e1c871ad0ccb60c8ee5ba337b9a
+model_name_or_path: Qwen/Qwen3.5-27B
+model_revision: fc05daec18b0a78c049392ed2e771dde82bdf654
 dtype: bfloat16
 attn_implementation: flash_attention_2
 dataset_num_proc: 16
@@ -23,11 +23,11 @@ gradient_checkpointing_kwargs:
   use_reentrant: false
 report_to: none
 max_length: 2368
-output_dir: ../sft-output/lora_ft_qwen3_5_9b
-run_name: lora_ft_qwen3_5_9b
-per_device_train_batch_size: 8
-per_device_eval_batch_size: 8
-gradient_accumulation_steps: 2
+output_dir: ../sft-output/lora_ft_qwen3_5_27b
+run_name: lora_ft_qwen3_5_27b
+per_device_train_batch_size: 2
+per_device_eval_batch_size: 2
+gradient_accumulation_steps: 8
 learning_rate: 0.0002
 weight_decay: 0.01
 use_peft: true

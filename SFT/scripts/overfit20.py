@@ -1,23 +1,34 @@
 """Overfit sanity-check: 20 WebSight examples, LoRA, loss must collapse.
 
-Run:
-    CUDA_VISIBLE_DEVICES=0 uv run python -m scripts.overfit20
+Run (either way works):
+    CUDA_VISIBLE_DEVICES=0 uv run python -m scripts.overfit20 [--model_name_or_path ...]
+    CUDA_VISIBLE_DEVICES=0 uv run python scripts/overfit20.py
 
 If the loss does not drop by an order of magnitude on 20 examples, the bug is
 in the pipeline (label masking, collation, target modules) — not in the data.
 Fix it here before starting a real run.
 """
+import argparse
+import sys
 from pathlib import Path
 
-from datasets import Dataset, Features, Image, Sequence, Value, load_dataset
-from trl import ModelConfig, ScriptArguments, SFTConfig
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from train.train_sft import build_trainer
+from datasets import (
+    Dataset,
+    Features,
+    Image,
+    Sequence,
+    Value,
+    load_dataset,
+)
+from trl import ModelConfig, SFTConfig
+
+from configs.gen import MODELS, max_length_for
+from train.train_sft import SftScriptArguments, build_trainer
 
 DATA_PATH = Path("data/websight20")
-
-MODEL_ID = "Qwen/Qwen3.5-9B"
-MODEL_REVISION = "c202236235762e1c871ad0ccb60c8ee5ba337b9a"
+DEFAULT_MODEL = "Qwen/Qwen3.5-9B"
 
 LORA_TARGET_MODULES = [
     "q_proj",
@@ -35,15 +46,15 @@ def preparing():
 
     ds = load_dataset("HuggingFaceM4/WebSight", "v0.2", split="train", streaming=True)
     first20 = ds.take(20)
-    first20 = map(
-        lambda ex: {
+    first20 = (
+        {
             "task_type": "drafting",
             "images": [ex["image"]],
             "current_html": "",
             "target_html": ex["text"],
             "instruction": "",
-        },
-        first20,
+        }
+        for ex in first20
     )
     features = Features(
         {
@@ -61,7 +72,31 @@ def preparing():
 def main():
     preparing()
 
-    script_args = ScriptArguments(dataset_name=str(DATA_PATH))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_name_or_path", default=DEFAULT_MODEL)
+    parser.add_argument("--revision", default="c202236235762e1c871ad0ccb60c8ee5ba337b9a")
+    parser.add_argument(
+        "--max_length",
+        type=int,
+        default=None,
+        help="по умолчанию берётся расчётный бюджет модели из configs/gen.py",
+    )
+    args = parser.parse_args()
+
+    max_length = args.max_length
+    if max_length is None:
+        entry = next(
+            (m for m in MODELS.values() if m["id"] == args.model_name_or_path), None
+        )
+        if entry is None:
+            parser.error(
+                f"{args.model_name_or_path} нет в configs/gen.py — "
+                "задайте --max_length явно"
+            )
+        max_length = max_length_for(entry)
+    print(f"max_length={max_length}")
+
+    script_args = SftScriptArguments(dataset_name=str(DATA_PATH), val_size=0.0)
     training_args = SFTConfig(
         output_dir="./train_res",
         num_train_epochs=15,
@@ -74,14 +109,13 @@ def main():
         save_strategy="no",
         bf16=True,
         remove_unused_columns=False,
-        # dataset_kwargs={"skip_prepare_dataset": True},
-        max_length=2200,
+        max_length=max_length,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
     )
     model_args = ModelConfig(
-        model_name_or_path=MODEL_ID,
-        model_revision=MODEL_REVISION,
+        model_name_or_path=args.model_name_or_path,
+        model_revision=args.revision,
         dtype="bfloat16",
         use_peft=True,
         lora_r=16,
