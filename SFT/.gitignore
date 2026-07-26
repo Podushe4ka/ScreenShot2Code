@@ -18,8 +18,13 @@ logs/
 *.pt
 *.safetensors
 
+# Артефакты ранов: чекпоинты, run_info.yaml, логи torchrun.
+# Это выход, а не код — в репозиторий не идёт.
+sft-output/
+torchrun-logs/
 
 data/websight20/
+data/websight1k/
 *.arrow
 *.jsonl
 *.parquet

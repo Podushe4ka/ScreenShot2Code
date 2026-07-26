@@ -52,7 +52,8 @@ SHARED_PARAMS = {
     "tf32": True,
     "num_train_epochs": 3,
     "warmup_ratio": 0.03,
-    "optim": "adamw_torch",
+    # fused-версия: та же математика, меньше вызовов ядер. Требует CUDA.
+    "optim": "adamw_torch_fused",
     "lr_scheduler_type": "cosine",
     "seed": 42,
     "logging_steps": 10,
@@ -93,9 +94,12 @@ MODELS = {
         "rev": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
         "factor": 32,
         "lora_bs": 16, "full_zero": 2,
-        # 36 слоёв, hidden 2560, словарь 151936 — логиты вдвое меньше, чем у
-        # Qwen3.5-4B, и нет Gated DeltaNet. Чекпоинтинг оставлен: на 2 картах
-        # ZeRO-2 держит ~36 ГБ статики на карту.
+        # Замерено на 2xA100 80 ГБ (full FT, ZeRO-2, max_length 2368):
+        #   bs=4 + чекпоинтинг         -> 20.1 с/шаг, 3.2 примера/с   (рабочий)
+        #   bs=8 + чекпоинтинг         -> 19.9 с/шаг                  (без выигрыша)
+        #   bs=4 без чекпоинтинга      -> OOM
+        # GPU util 99%, то есть упор в вычисления: батч и оптимизатор скорость
+        # не меняют. bs=4 оставлен как более безопасный по памяти.
         "full_bs": 4, "full_gc": True,
     },
     "qwen2_5_vl_7b": {

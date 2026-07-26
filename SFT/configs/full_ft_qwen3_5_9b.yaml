@@ -10,7 +10,7 @@ dataloader_num_workers: 8
 tf32: true
 num_train_epochs: 3
 warmup_ratio: 0.03
-optim: adamw_torch
+optim: adamw_torch_fused
 lr_scheduler_type: cosine
 seed: 42
 logging_steps: 10
