@@ -74,6 +74,12 @@ MODELS = {
         "factor": 32,
         "lora_bs": 16, "full_zero": 2,
     },
+    "qwen2_5_vl_7b": {
+        "id": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "rev": "cc594898137f460bfe9f0759e9844b3ce807cfb5",
+        "factor": 28,         
+        "lora_bs": 8, "full_zero": 2,
+    },
     "qwen3_vl_8b": {
         "id": "Qwen/Qwen3-VL-8B-Instruct",
         "rev": "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b",
