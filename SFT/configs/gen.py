@@ -61,7 +61,7 @@ SHARED_PARAMS = {
     # [0,1)). Абсолютные числа тут вредны: на датасете в пару тысяч примеров
     # шагов всего десятки, и save_steps=500 не срабатывает ни разу.
     "eval_strategy": "steps",
-    "eval_steps": 0.1,
+    "eval_steps": 0.25,
     "save_strategy": "steps",
     "save_steps": 0.2,  # 5 чекпоинтов за ран, из них хранятся последние 2
     "save_total_limit": 2,
