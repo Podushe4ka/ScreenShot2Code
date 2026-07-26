@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+from datasets.utils.logging import disable_progress_bar
 from transformers import AutoModelForImageTextToText, AutoProcessor, set_seed
 from trl import (
     ModelConfig,
@@ -25,33 +26,60 @@ from train.run_info import format_meta, git_commit, make_run_name, save_run_info
 logger = logging.getLogger(__name__)
 
 
+def setup_logging(training_args) -> None:
+    """INFO для своего кода, WARNING для библиотек, шум — только с rank 0.
+
+    Без этого при запуске на N карт каждый ранг печатает свои прогресс-бары и
+    свои отчёты, а INFO от httpx засыпает лог обращениями к Hub.
+    """
+    logging.basicConfig(
+        level=logging.WARNING,
+        format=f"[rank{training_args.process_index}] %(levelname)s %(name)s: %(message)s",
+    )
+    for name in ("train", "data"):
+        logging.getLogger(name).setLevel(logging.INFO)
+
+    if not training_args.should_log:
+        disable_progress_bar()
+
+
 def _prepare_split(script_args, training_args, processor, split, required):
     """Прочитать сплит, разложить в messages и отбраковать по бюджету токенов.
 
     Возвращает (dataset|None, report|None).
+
+    Вся тяжёлая часть — под `main_process_first`: главный процесс считает и
+    кладёт результат в кэш datasets, остальные ранги проходят по готовому.
+    Иначе одна и та же фильтрация выполняется столько раз, сколько карт.
     """
-    dataset = load_sft_dataset(script_args.dataset_name, split, required=required)
-    if dataset is None:
-        return None, None
+    with training_args.main_process_first(desc=f"подготовка сплита {split}"):
+        dataset = load_sft_dataset(script_args.dataset_name, split, required=required)
+        if dataset is None:
+            return None, None
 
-    dataset = dataset.map(to_message)
-    if training_args.max_length is None:
-        return dataset, None
+        dataset = dataset.map(to_message)
+        if training_args.max_length is None:
+            return dataset, None
 
-    dataset, report = filter_by_length(
-        dataset,
-        processor,
-        max_length=training_args.max_length,
-        num_proc=training_args.dataset_num_proc,
-    )
+        dataset, report = filter_by_length(
+            dataset,
+            processor,
+            max_length=training_args.max_length,
+            num_proc=training_args.dataset_num_proc,
+        )
     return dataset, report
 
 
 def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
     set_seed(training_args.seed)
+    setup_logging(training_args)
+    # Печатаем только с главного процесса, иначе каждая строка дублируется
+    # столько раз, сколько карт.
+    say = print if training_args.should_log else lambda *a, **k: None
+
     training_args.run_name = make_run_name(training_args, model_args)
     training_args.output_dir = str(Path(training_args.output_dir) / training_args.run_name)
-    print(f"run: {training_args.run_name}\nвыход: {training_args.output_dir}")
+    say(f"run: {training_args.run_name}\nвыход: {training_args.output_dir}")
 
     peft_config = get_peft_config(model_args)
 
@@ -75,13 +103,13 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
         script_args, training_args, processor, script_args.dataset_train_split, True
     )
     if train_report is not None:
-        print(f"[{script_args.dataset_train_split}] {train_report.format()}")
+        say(f"[{script_args.dataset_train_split}] {train_report.format()}")
 
     eval_dataset, eval_report = _prepare_split(
         script_args, training_args, processor, script_args.dataset_test_split, False
     )
     if eval_report is not None:
-        print(f"[{script_args.dataset_test_split}] {eval_report.format()}")
+        say(f"[{script_args.dataset_test_split}] {eval_report.format()}")
 
     if eval_dataset is None and training_args.eval_strategy != "no":
         logger.warning(
@@ -107,14 +135,17 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
         "peft": bool(peft_config),
         "git_commit": git_commit(),
     }
-    print(f"meta: {format_meta(meta)}")
-    save_run_info(
-        training_args.output_dir,
-        script_args=script_args,
-        training_args=training_args,
-        model_args=model_args,
-        meta=meta,
-    )
+    say(f"meta: {format_meta(meta)}")
+    # Снимок рана пишет только главный процесс: иначе 4 ранга одновременно
+    # открывают один файл на запись.
+    if training_args.should_save:
+        save_run_info(
+            training_args.output_dir,
+            script_args=script_args,
+            training_args=training_args,
+            model_args=model_args,
+            meta=meta,
+        )
 
     collate_fn = make_collate_fn(processor)
 
@@ -139,7 +170,9 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
 
 
 def main(argv=None):
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    # Логирование настраивается в build_trainer (setup_logging): там уже
+    # известен process_index. Повторный basicConfig здесь ничего не даст —
+    # он игнорируется, если хендлеры root-логгера уже созданы.
     parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
     script_args, training_args, model_args = parser.parse_args_and_config(args=argv)
     trainer = build_trainer(script_args, training_args, model_args)
