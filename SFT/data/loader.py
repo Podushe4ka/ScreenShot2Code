@@ -44,7 +44,6 @@ def load_sft_dataset(
             return None
         dataset = data[split]
     else:
-        # save_to_disk одиночного Dataset — сплитов внутри нет.
         if split != "train":
             if required:
                 raise ValueError(

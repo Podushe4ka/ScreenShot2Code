@@ -30,7 +30,7 @@ output_dir: ../sft-output/lora_ft_qwen2_5_vl_7b
 run_name: lora_ft_qwen2_5_vl_7b
 per_device_train_batch_size: 8
 per_device_eval_batch_size: 8
-gradient_accumulation_steps: 2
+gradient_accumulation_steps: 4
 learning_rate: 0.0002
 weight_decay: 0.01
 use_peft: true
