@@ -15,6 +15,7 @@ save_to_disk. Это временный анблок; правильный фи�
 """
 import argparse
 
+import datasets
 from datasets import load_from_disk
 
 
@@ -26,9 +27,12 @@ def main():
                     help="макс. высота скриншота в px (по умолчанию 1024 = бюджет 1280 токенов при ширине 1280)")
     args = ap.parse_args()
 
+    # keep_in_memory + disable_caching: не писать служебный кэш в исходную папку — она
+    # часто root-owned (датасет собран Docker'ом от root), запись туда падает PermissionError.
+    datasets.disable_caching()
     d = load_from_disk(args.inp)
     n0 = len(d)
-    d2 = d.filter(lambda ex: ex["images"][0].size[1] <= args.max_height)
+    d2 = d.filter(lambda ex: ex["images"][0].size[1] <= args.max_height, keep_in_memory=True)
     d2.save_to_disk(args.out)
     print(f"оставлено {len(d2)}/{n0} (height<={args.max_height}px), "
           f"отброшено {n0 - len(d2)} -> {args.out}")
