@@ -177,7 +177,10 @@ def render_full(html_text, width=RENDER_WIDTH):
     Скроллбар мог красть 16px ширины (1296 вместо 1280) — страхуемся кропом до width."""
     page = _browser().new_page(viewport={"width": width, "height": 1024}, device_scale_factor=1)
     try:
-        page.set_content(html_text, wait_until="networkidle")
+        # wait_until="load", НЕ "networkidle": после precompile+плейсхолдеров страница
+        # self-contained (внешних запросов нет), а networkidle всё равно ждёт 500мс "тишины"
+        # на каждой странице (~574мс vs ~67мс на пустой сети — замер в истории коммита).
+        page.set_content(html_text, wait_until="load")
         png = page.screenshot(full_page=True)
     finally:
         page.close()
