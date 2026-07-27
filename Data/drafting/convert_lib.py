@@ -163,26 +163,28 @@ def _browser():
 
 
 def render_full(html_text, width=RENDER_WIDTH):
-    """Прямой sync-рендер ВСЕЙ страницы: ширина фикс, высота — по контенту (body.scrollHeight).
+    """Прямой sync-рендер ВСЕЙ страницы: ширина фикс = width, высота = вся прокрутка.
     Годится для скрипта/воркера (отдельный процесс, нет asyncio-loop).
 
-    ВАЖНО (не регрессировать): скриншот делаем только ПОСЛЕ того, как выставили высоту
-    вьюпорта в измеренный scrollHeight. `page.screenshot(clip=...)` без full_page захватывает
-    лишь область вьюпорта — если оставить стартовые 1024, любая страница выше 1024px молча
-    обрезается (скрин перестаёт соответствовать коду). Ресайз вьюпорта → clip внутри него =
-    полный кадр, высота ровно по контенту. (Ранее здесь был full_page=True; его заменили на
-    clip без ресайза — это и был баг обрезки.)"""
+    ВАЖНО (не регрессировать) — почему именно full_page=True, а не ресайз+clip:
+    Playwright при full_page привязывает `vh`/`min-h-screen`/`h-screen` к высоте ВЬЮПОРТА,
+    а не к полной высоте контента, и сам захватывает всю прокрутку. Прошлые два подхода оба
+    были неверны:
+      • clip без ресайза на вьюпорте 1024 — обрезал всё выше 1024;
+      • ресайз вьюпорта в scrollHeight + clip — тогда `100vh` героя = вся высота страницы,
+        герой растягивался на весь кадр и выпихивал контент за обрез (скрин = сплошной фон
+        героя, реального контента нет). Проверено: см. тест в истории коммита.
+    Скроллбар мог красть 16px ширины (1296 вместо 1280) — страхуемся кропом до width."""
     page = _browser().new_page(viewport={"width": width, "height": 1024}, device_scale_factor=1)
     try:
         page.set_content(html_text, wait_until="networkidle")
-        height = int(page.evaluate(
-            "() => Math.max(document.body ? document.body.scrollHeight : "
-            "document.documentElement.scrollHeight, 1)"))
-        page.set_viewport_size({"width": width, "height": max(1, height)})
-        png = page.screenshot(clip={"x": 0, "y": 0, "width": width, "height": max(1, height)})
+        png = page.screenshot(full_page=True)
     finally:
         page.close()
-    return PILImage.open(io.BytesIO(png)).convert("RGB")
+    img = PILImage.open(io.BytesIO(png)).convert("RGB")
+    if img.width != width:            # остаточная ширина скроллбара/горизонт. оверфлоу
+        img = img.crop((0, 0, width, img.height))
+    return img
 
 
 def render_threaded(html_text, width=RENDER_WIDTH):

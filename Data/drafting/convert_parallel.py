@@ -148,14 +148,12 @@ def main():
     # размеры — из PNG-заголовков, собранных в фазе 2 (без декода 5k изображений заново).
     widths = {w for w, _ in sizes}
     assert widths == {RENDER_WIDTH}, f"ширины разные: {widths}"
-    # высота плавает по контенту (§4a — открытый вопрос). Печатаем распределение: спайк ровно
-    # на стартовой высоте вьюпорта (1024) + нулевой хвост выше = признак обрезки (см. render_full).
+    # высота плавает по контенту (full_page; §4a — открытый вопрос про единый размер).
     heights = sorted(h for _, h in sizes)
-    n_at_1024 = sum(1 for h in heights if h == 1024)
+    p95 = heights[min(len(heights) - 1, int(len(heights) * .95))]
     print(f"[приёмка] OK: {len(ds2)} сэмплов, ширина {RENDER_WIDTH}, нет <img>, load_from_disk ✓")
     print(f"[приёмка] высота: min={heights[0]}, median={heights[len(heights)//2]}, "
-          f"max={heights[-1]}, ровно 1024px={n_at_1024} "
-          f"({100*n_at_1024/len(heights):.0f}%; много при нулевом хвосте выше 1024 = проверь обрезку)")
+          f"p95={p95}, max={heights[-1]}")
     if args.token_report:
         token_report(list(ds2), sizes)
     else:
