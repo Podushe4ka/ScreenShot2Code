@@ -14,5 +14,5 @@ __pycache__/
 images/
 report.html
 
-# вывод visual/compare_datasets.py
-Data/visual/*.png
+# вывод analysis/compare_datasets.py
+Data/analysis/*.png
