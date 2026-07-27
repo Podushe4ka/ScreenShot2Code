@@ -128,7 +128,14 @@ def main():
     widths = {s["images"][0].size[0] for s in ds2}
     assert widths == {RENDER_WIDTH}, f"ширины разные: {widths}"
     assert all(s["target_html"] and "<img" not in s["target_html"].lower() for s in ds2)
+    # высота плавает по контенту (§4a — открытый вопрос). Печатаем распределение: спайк ровно
+    # на стартовой высоте вьюпорта (1024) + нулевой хвост выше = признак обрезки (см. render_full).
+    heights = sorted(s["images"][0].size[1] for s in ds2)
+    n_at_1024 = sum(1 for h in heights if h == 1024)
     print(f"[приёмка] OK: {len(ds2)} сэмплов, ширина {RENDER_WIDTH}, нет <img>, load_from_disk ✓")
+    print(f"[приёмка] высота: min={heights[0]}, median={heights[len(heights)//2]}, "
+          f"max={heights[-1]}, ровно 1024px={n_at_1024} "
+          f"({100*n_at_1024/len(heights):.0f}%; много при нулевом хвосте выше 1024 = проверь обрезку)")
     if args.token_report:
         token_report(list(ds2))
     else:

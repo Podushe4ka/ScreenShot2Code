@@ -164,13 +164,21 @@ def _browser():
 
 def render_full(html_text, width=RENDER_WIDTH):
     """Прямой sync-рендер ВСЕЙ страницы: ширина фикс, высота — по контенту (body.scrollHeight).
-    Годится для скрипта/воркера (отдельный процесс, нет asyncio-loop)."""
+    Годится для скрипта/воркера (отдельный процесс, нет asyncio-loop).
+
+    ВАЖНО (не регрессировать): скриншот делаем только ПОСЛЕ того, как выставили высоту
+    вьюпорта в измеренный scrollHeight. `page.screenshot(clip=...)` без full_page захватывает
+    лишь область вьюпорта — если оставить стартовые 1024, любая страница выше 1024px молча
+    обрезается (скрин перестаёт соответствовать коду). Ресайз вьюпорта → clip внутри него =
+    полный кадр, высота ровно по контенту. (Ранее здесь был full_page=True; его заменили на
+    clip без ресайза — это и был баг обрезки.)"""
     page = _browser().new_page(viewport={"width": width, "height": 1024}, device_scale_factor=1)
     try:
         page.set_content(html_text, wait_until="networkidle")
         height = int(page.evaluate(
             "() => Math.max(document.body ? document.body.scrollHeight : "
             "document.documentElement.scrollHeight, 1)"))
+        page.set_viewport_size({"width": width, "height": max(1, height)})
         png = page.screenshot(clip={"x": 0, "y": 0, "width": width, "height": max(1, height)})
     finally:
         page.close()
