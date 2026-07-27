@@ -303,41 +303,39 @@ def build_html_report(table, out_path, img_cols, html_cols, n):
  .grid{display:grid;grid-template-columns:1fr 1fr;gap:0}
  .cell{padding:14px;border-top:1px solid #eee;min-width:0}
  .cell h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#71717a}
- .cell img{max-width:100%;border:1px solid #ddd;border-radius:6px}
- /* рендерим HTML в фикс. ширине 1280 (как снят скрин) и ужимаем scale .5 — чтобы раскладка совпадала с картинкой, а не перетекала в узкий iframe */
- .fw{width:640px;max-width:100%;height:800px;overflow:hidden;border:1px solid #ddd;border-radius:6px;background:#fff}
- .fw iframe{width:1280px;height:1600px;border:0;transform:scale(.5);transform-origin:top left;display:block}
- pre{max-height:340px;overflow:auto;background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;
+ /* Скриншот из датасета — это УЖЕ честный full-page рендер target_html (снят тем же
+    render_full). Поэтому показываем сам скриншот рядом с кодом и НЕ ре-рендерим в iframe:
+    браузерный iframe не расцепляет vh и высоту кадра (вьюпорт=высота элемента), поэтому
+    воспроизвести full-page скрин при вьюпорте 1024 не может — прошлый iframe давал ложное
+    расхождение (другой vh, обрезка, другой масштаб). Не возвращать iframe. */
+ .shot{max-height:85vh;overflow:auto;border:1px solid #ddd;border-radius:6px;background:#fff}
+ .shot img{display:block;max-width:100%}
+ pre{max-height:85vh;overflow:auto;background:#0d1117;color:#c9d1d9;padding:12px;border-radius:6px;
      font-size:12px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
  @media(max-width:820px){.grid{grid-template-columns:1fr}}
 </style></head><body>"""]
-    parts.append(f"<header>Arrow report — {html_mod.escape(os.path.basename(out_path))} · строк: {limit}</header>")
+    parts.append(f"<header>Arrow report — {html_mod.escape(os.path.basename(out_path))} · строк: {limit} "
+                 f"· слева скриншот (= рендер target_html), справа код</header>")
 
     for i in range(limit):
         parts.append(f'<div class="row"><h2>Строка {i}</h2><div class="grid">')
 
-        # картинки
+        # скриншот(ы) — это и есть рендер target_html
         for col in img_cols:
             imgs = _row_images(table.column(col)[i].as_py())
             uris = [u for u in (_img_data_uri(x) for x in imgs) if u]
             parts.append('<div class="cell"><h3>' + html_mod.escape(col) + '</h3>')
             if uris:
-                parts.append("".join(f'<img src="{u}">' for u in uris))
+                parts.append("".join(f'<div class="shot"><img src="{u}"></div>' for u in uris))
             else:
                 parts.append("<em>нет картинок</em>")
             parts.append("</div>")
 
-        # html-колонки: рендер в iframe + исходник
+        # html-колонки: только исходник (рендер = скриншот слева)
         for col in html_cols:
-            code = table.column(col)[i].as_py() or ""
-            srcdoc = html_mod.escape(code, quote=True)
-            src = html_mod.escape(code)
-            parts.append(
-                '<div class="cell"><h3>' + html_mod.escape(col) + ' (рендер @1280)</h3>'
-                f'<div class="fw"><iframe sandbox="allow-same-origin" srcdoc="{srcdoc}"></iframe></div></div>'
-                '<div class="cell"><h3>' + html_mod.escape(col) + ' (код)</h3>'
-                f'<pre>{src}</pre></div>'
-            )
+            src = html_mod.escape(table.column(col)[i].as_py() or "")
+            parts.append('<div class="cell"><h3>' + html_mod.escape(col) + ' (код)</h3>'
+                         f'<pre>{src}</pre></div>')
 
         parts.append("</div></div>")
 
