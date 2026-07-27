@@ -25,7 +25,7 @@
 docker build -t ws-conv -f Data/drafting/Dockerfile .
 docker run --rm -v "$PWD":/work --shm-size=2g ws-conv --target 5000 --n-workers 32
 ```
-Датасет ляжет в `Data/drafting/websight_drafting_pilot/` на хосте. ~5000 за пару минут (48/с на 64 воркерах).
+Датасет ляжет в `Data/websight_drafting_pilot/` на хосте (WORKDIR образа = `Data/`). ~5000 за пару минут (48/с на 64 воркерах).
 Ручки: `--target N` (сколько собрать), `--n-workers` (процессов; 32–48 оптимум), `--near-dup K`.
 
 ## Локально без Docker
@@ -37,7 +37,8 @@ python convert_parallel.py --target 500 --n-workers 16   # батч
 ```
 
 ## Передача SFT
-Данные — через диск/том (контракт §7), не через git (`*drafting_pilot*/` в .gitignore):
+Полная памятка приёмки — [`HANDOFF.md`](HANDOFF.md). Кратко: данные — через диск/том
+(контракт §7), не через git (`*drafting_pilot*/` в .gitignore):
 `-v <путь>/websight_drafting_pilot:/data` → SFT `load_from_disk("/data")`.
 `max_length` берётся из токен-отчёта (код p99 + картинка p99; ~6144 с запасом под конфиг 8192).
 
