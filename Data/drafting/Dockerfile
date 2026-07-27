@@ -5,7 +5,7 @@
 #
 # Сборка (из КОРНЯ репозитория):
 #     docker build -t ws-conv -f Data/drafting/Dockerfile .
-# Запуск (код+датасет монтируем томом -> результат в Data/drafting/websight_drafting_pilot/ на хосте):
+# Запуск (код+датасет монтируем томом -> результат в Data/websight_drafting_pilot/ на хосте):
 #     docker run --rm -v "$PWD":/work --shm-size=2g ws-conv --target 5000 --n-workers 32
 #   быстрая проверка: ... ws-conv --target 200 --n-workers 16
 #   с токеном:        docker run --rm -e HF_TOKEN=hf_xxx -v "$PWD":/work --shm-size=2g ws-conv
@@ -24,7 +24,10 @@ RUN python -m pip install --no-cache-dir --upgrade pip && \
 # Основной прогон (сборка датасета) transformers/torch НЕ грузит — токен-функции ленивые.
 
 # Код монтируется томом: -v "$PWD":/work (convert_parallel.py + convert_lib.py + ../analysis/token_len.py)
-WORKDIR /work/Data/drafting
+# WORKDIR = Data/, чтобы дефолтный --out ./websight_drafting_pilot падал прямо в Data/ на хосте
+# (а не в Data/drafting/). Импорты не зависят от CWD: convert_lib находит analysis/ через __file__,
+# а папку скрипта Python сам добавляет в sys.path.
+WORKDIR /work/Data
 
-ENTRYPOINT ["python", "convert_parallel.py"]
+ENTRYPOINT ["python", "drafting/convert_parallel.py"]
 CMD ["--target", "5000", "--n-workers", "32"]
