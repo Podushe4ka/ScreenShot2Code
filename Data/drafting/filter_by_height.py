@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""filter_by_height.py — отфильтровать drafting-датасет по высоте скриншота.
+
+Зачем: SFT-процессор Qwen3.5 пока НЕ ужимает картинки по max_pixels (см. PLAN §4a),
+поэтому высокие full-page скрины (>1024px при ширине 1280) превышают визуальный
+бюджет модели (1280 токенов при потолке 1.31 Мп) и роняют vision-башню
+(mismatch патчей и позиционных эмбеддингов). Ширина 1280 фикс, значит
+height<=1024  <=>  <=1280 визуальных токенов = ровно в бюджете.
+
+Быстро (без ре-рендера): читает готовый датасет, фильтрует по высоте картинки,
+save_to_disk. Это временный анблок; правильный фикс — включить клэмп max_pixels
+на стороне SFT-процессора (тогда высокие скрины не теряем).
+
+    python filter_by_height.py IN OUT [--max-height 1024]
+"""
+import argparse
+
+from datasets import load_from_disk
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("inp", help="путь к датасету (load_from_disk)")
+    ap.add_argument("out", help="куда сохранить отфильтрованный")
+    ap.add_argument("--max-height", type=int, default=1024,
+                    help="макс. высота скриншота в px (по умолчанию 1024 = бюджет 1280 токенов при ширине 1280)")
+    args = ap.parse_args()
+
+    d = load_from_disk(args.inp)
+    n0 = len(d)
+    d2 = d.filter(lambda ex: ex["images"][0].size[1] <= args.max_height)
+    d2.save_to_disk(args.out)
+    print(f"оставлено {len(d2)}/{n0} (height<={args.max_height}px), "
+          f"отброшено {n0 - len(d2)} -> {args.out}")
+
+
+if __name__ == "__main__":
+    main()
