@@ -345,6 +345,65 @@ def build_html_report(table, out_path, img_cols, html_cols, n):
     print(f"HTML-отчёт готов: {out_path}  (строк: {limit})")
 
 
+# --------------------------------------------------------------------------
+# Сверка рендера: ре-рендер target_html тем же рендерером, что делал скриншот,
+# и сравнение со скриншотом из датасета. Честная проверка «код рендерится так же»
+# (в отличие от HTML-отчёта: там браузерный iframe не воспроизводит full-page).
+# --------------------------------------------------------------------------
+def verify_render(table, img_cols, out_dir, n):
+    """Для n строк: рендерит target_html через convert_lib.render_full (ровно тот рендерер,
+    которым снят скриншот) и сравнивает с картинкой из датасета — размеры + средняя попиксельная
+    разница. Кладёт side-by-side [датасет | ре-рендер] в out_dir, помечает расхождения.
+    Совпадение доказывает, что скриншот = честный рендер target_html. Нужны playwright +
+    (target_html уже с precompiled Tailwind, второй раз компилировать не надо)."""
+    if not HAVE_PIL:
+        sys.exit("--verify нужен Pillow: pip install pillow")
+    try:
+        import convert_lib as C
+        from PIL import ImageChops, ImageStat
+    except Exception as e:
+        sys.exit(f"--verify нужен convert_lib + playwright (как у конвертера): {e}")
+    if not img_cols:
+        sys.exit("нет Image-колонок для сверки")
+    hcols = html_columns(table)
+    hcol = "target_html" if "target_html" in hcols else (hcols[0] if hcols else None)
+    if hcol is None:
+        sys.exit("нет непустой html-колонки (target_html) для рендера")
+    icol = img_cols[0]
+    os.makedirs(out_dir, exist_ok=True)
+    limit = min(n, table.num_rows)
+    n_ok = 0
+    try:
+        for i in range(limit):
+            imgs = _row_images(table.column(icol)[i].as_py())
+            raw = imgs[0].get("bytes") if imgs else None
+            html = table.column(hcol)[i].as_py() or ""
+            if not raw or not html:
+                print(f"[{i}] пропуск (нет картинки или html)")
+                continue
+            stored = Image.open(io.BytesIO(raw)).convert("RGB")
+            rer = C.render_threaded(html)          # тот же render_full, но через поток (без greenlet-конфликта)
+            same_size = stored.size == rer.size
+            if same_size:
+                mean = sum(ImageStat.Stat(ImageChops.difference(stored, rer)).mean) / 3
+                ok = mean < 8                      # эвристика: <8/255 = та же раскладка (мелкий AA-шум шрифтов)
+                note = f"сред.разница {mean:.1f}/255"
+            else:
+                ok = False
+                note = "размеры разные"
+            n_ok += ok
+            print(f"[{i}] {'OK' if ok else 'РАСХОЖДЕНИЕ'}: датасет {stored.size} vs ре-рендер {rer.size} | {note}")
+            H = max(stored.height, rer.height)
+            canv = Image.new("RGB", (stored.width + rer.width + 20, H), (240, 240, 240))
+            canv.paste(stored, (0, 0))
+            canv.paste(rer, (stored.width + 20, 0))
+            canv.save(os.path.join(out_dir, f"verify_{i:04d}_{'ok' if ok else 'DIFF'}.png"))
+    finally:
+        C.close_renderer()
+    print(f"[verify] совпало {n_ok}/{limit} · side-by-side -> {out_dir}/  "
+          f"(размеры разные / большая разница = рендер недетерминирован или target_html не self-contained)")
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Просмотр .arrow файлов с поддержкой Image-колонок.")
@@ -360,7 +419,12 @@ def main():
     ap.add_argument("--schema-only", action="store_true",
                     help="показать только схему")
     ap.add_argument("--html", metavar="FILE",
-                    help="собрать HTML-отчёт: картинка + рендер и код html-колонок")
+                    help="собрать HTML-отчёт: скриншот + код html-колонок")
+    ap.add_argument("--verify", type=int, metavar="N",
+                    help="сверить рендер: ре-рендерить target_html первых N строк тем же "
+                         "рендерером и сравнить со скриншотом (нужны playwright + pytailwindcss)")
+    ap.add_argument("--verify-out", metavar="DIR", default="verify",
+                    help="куда класть side-by-side сверки (по умолчанию ./verify)")
     args = ap.parse_args()
 
     if not os.path.isfile(args.path):
@@ -374,6 +438,10 @@ def main():
             print("В файле нет Image-колонок для извлечения.")
         else:
             extract_images(table, img_cols, args.extract_images)
+        return
+
+    if args.verify is not None:
+        verify_render(table, img_cols, args.verify_out, args.verify)
         return
 
     if args.html:

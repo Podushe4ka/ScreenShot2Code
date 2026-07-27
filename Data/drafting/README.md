@@ -10,7 +10,7 @@
 | `convert.ipynb` | интерактив (отладка/просмотр), импортит `convert_lib` |
 | `convert_parallel.py` | батч на многих ядрах (ProcessPool, spawn), импортит `convert_lib` |
 | `Dockerfile` | окружение (браузеры + либы + зависимости) для батча |
-| `view_arrow.py` | просмотр .arrow-датасета (сводка / `--extract-images` / `--html` отчёт) |
+| `view_arrow.py` | просмотр .arrow-датасета (сводка / `--extract-images` / `--html` отчёт / `--verify N` сверка рендера) |
 
 ## Два профиля
 - **Смоук:** `APPLY_PLACEHOLDERS=False`, `PRECOMPILE_TAILWIND=False`. Быстро, **без браузера** (берёт
