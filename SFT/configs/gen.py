@@ -26,7 +26,12 @@ N_GPUS = 2
 # gradient_accumulation_steps.
 TARGET_EFF_BATCH = 64
 
-CODE_P99_TOKENS = 896
+# p99 длины кода в ДОСТАВЛЯЕМОМ drafting-таргете, а не в сыром источнике.
+# 896 — это сырой WebSight v0.2 (text с CDN-Tailwind). Наш конвертер прогоняет
+# precompile_tailwind, из-за чего target_html в ~4x длиннее: p99 ≈ 3815
+# (замер на пилоте, см. Data/drafting/HANDOFF.md §5, Data/analysis/dataset_notes.md).
+# Со старым 896 max_length считался 2368 и отсекал ВЕСЬ реальный датасет (пустой сплит).
+CODE_P99_TOKENS = 3815
 
 PROMPT_OVERHEAD_TOKENS = 160
 
@@ -100,7 +105,9 @@ MODELS = {
         "id": "Qwen/Qwen3-VL-4B-Instruct",
         "rev": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
         "factor": 32,
-        "lora_bs": 16, "full_zero": 2,
+        # lora_bs 16 -> 4: при исправленном max_length (~5312) тензор логитов
+        # (bs, seqlen, vocab) в fp32 для лосса доминирует по памяти — bs=16 даёт OOM.
+        "lora_bs": 4, "full_zero": 2,
         # Замерено на 2xA100 80 ГБ (full FT, ZeRO-2, max_length 2368):
         #   bs=4 + чекпоинтинг         -> 20.1 с/шаг, 3.2 примера/с   (рабочий)
         #   bs=8 + чекпоинтинг         -> 19.9 с/шаг                  (без выигрыша)
