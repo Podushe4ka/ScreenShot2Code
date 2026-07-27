@@ -15,6 +15,7 @@ import argparse
 import hashlib
 import multiprocessing
 import os
+import struct
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 
@@ -26,6 +27,17 @@ from convert_lib import (FEATURES, MAX_PIXELS, MIN_PIXELS, RENDER_WIDTH,
 
 DATASET = "HuggingFaceM4/WebSight"     # v0.2, Tailwind
 SPLIT = "train"
+
+_PNG_SIG = b"\x89PNG\r\n\x1a\n"
+
+
+def png_size(data):
+    """(width, height) из заголовка PNG — без декодирования пикселей.
+    IHDR идёт сразу за 8-байтной сигнатурой: [4 len][4 'IHDR'][4 width][4 height] (big-endian).
+    Playwright всегда пишет PNG. Дёшево — можно звать на каждый сэмпл в фазе 2, вместо
+    повторного декода `s['images'][0].size` из уже сохранённого датасета (5k декодов PNG)."""
+    assert data[:8] == _PNG_SIG, "не PNG — png_size рассчитан на скриншоты Playwright"
+    return struct.unpack(">II", data[16:24])
 
 
 # ------------------------------------------------------------------ фаза 1
@@ -60,10 +72,12 @@ def collect_candidates(target, max_scan, near_dup):
 
 
 # --------------------------------------------------------------- токен-отчёт
-def token_report(rows):
+def token_report(rows, sizes):
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(TOKENIZER_ID_DEFAULT)
-    pairs = [(count_tokens(r["target_html"], tok), qwen_image_tokens(*r["images"][0].size)) for r in rows]
+    # sizes выровнены с rows (тот же порядок сохранения) — размер картинки берём отсюда, без декода.
+    pairs = [(count_tokens(r["target_html"], tok), qwen_image_tokens(w, h))
+             for r, (w, h) in zip(rows, sizes)]
     code = sorted(c for c, _ in pairs)
     img = sorted(m for _, m in pairs)
     total = sorted(c + m for c, m in pairs)
@@ -104,13 +118,16 @@ def main():
     print("[preflight] OK")
 
     # фаза 2: параллельно. spawn (не fork!) — Playwright ломается через fork после старта браузера.
-    rows, errs = [], []
+    # Размер скрина берём из PNG-заголовка тут же (png на руках) — иначе приёмка декодировала бы
+    # все 5k изображений заново через ds2[i]["images"][0].size.
+    rows, errs, sizes = [], [], []
     ctx = multiprocessing.get_context("spawn")
     from tqdm import tqdm
     with ProcessPoolExecutor(max_workers=args.n_workers, mp_context=ctx) as ex:
         for res in tqdm(ex.map(process_one, htmls, chunksize=4), total=len(htmls), desc="[фаза 2] render"):
             if res[0] == "ok":
                 _, html, png = res
+                sizes.append(png_size(png))
                 rows.append({"task_type": "drafting", "images": [{"bytes": png, "path": None}],
                              "current_html": "", "target_html": html, "instruction": ""})
             else:
@@ -125,19 +142,22 @@ def main():
     ds = Dataset.from_list(rows, features=FEATURES)
     ds.save_to_disk(out_dir)
     ds2 = load_from_disk(out_dir)
-    widths = {s["images"][0].size[0] for s in ds2}
-    assert widths == {RENDER_WIDTH}, f"ширины разные: {widths}"
+    assert len(ds2) == len(sizes), f"рассинхрон: ds2={len(ds2)} sizes={len(sizes)}"
+    # target_html — строковая колонка, читается без декода изображений (round-trip load_from_disk).
     assert all(s["target_html"] and "<img" not in s["target_html"].lower() for s in ds2)
+    # размеры — из PNG-заголовков, собранных в фазе 2 (без декода 5k изображений заново).
+    widths = {w for w, _ in sizes}
+    assert widths == {RENDER_WIDTH}, f"ширины разные: {widths}"
     # высота плавает по контенту (§4a — открытый вопрос). Печатаем распределение: спайк ровно
     # на стартовой высоте вьюпорта (1024) + нулевой хвост выше = признак обрезки (см. render_full).
-    heights = sorted(s["images"][0].size[1] for s in ds2)
+    heights = sorted(h for _, h in sizes)
     n_at_1024 = sum(1 for h in heights if h == 1024)
     print(f"[приёмка] OK: {len(ds2)} сэмплов, ширина {RENDER_WIDTH}, нет <img>, load_from_disk ✓")
     print(f"[приёмка] высота: min={heights[0]}, median={heights[len(heights)//2]}, "
           f"max={heights[-1]}, ровно 1024px={n_at_1024} "
           f"({100*n_at_1024/len(heights):.0f}%; много при нулевом хвосте выше 1024 = проверь обрезку)")
     if args.token_report:
-        token_report(list(ds2))
+        token_report(list(ds2), sizes)
     else:
         # Зафиксировано на WebSight v0.2 production (пересчёт: --token-report, нужен torch).
         print("[токены] отчёт пропущен (--token-report для пересчёта). Известные WebSight v0.2:")
