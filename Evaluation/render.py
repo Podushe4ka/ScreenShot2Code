@@ -38,7 +38,24 @@ def _get_browser():
     global _playwright_ctx, _browser
     if _browser is None:
         _playwright_ctx = sync_playwright().start()
-        _browser = _playwright_ctx.chromium.launch()
+        # --disable-gpu и связанные флаги: контейнер пробрасывает GPU для
+        # CUDA (vLLM/PyTorch), но не DRM/VAAPI-устройства, нужные Chromium
+        # для аппаратного композитинга. Без этих флагов GPU-процесс Chromium
+        # падает (crash loop -> "GPU process isn't usable. Goodbye."), после
+        # чего браузер закрывается целиком и ВСЕ дальнейшие скриншоты в этом
+        # процессе валятся с "Target page, context or browser has been
+        # closed" - это резко бьёт при нескольких параллельных воркерах
+        # (--num-workers), так как конкуренция за software-рендеринг растёт.
+        # Скриншотим статичный HTML/Tailwind без WebGL/canvas-анимаций,
+        # так что аппаратный композитинг не нужен - программный растеризатор
+        # (--disable-gpu) медленнее на сложных canvas-сценах, но здесь не
+        # играет роли и, что важнее, не падает.
+        _browser = _playwright_ctx.chromium.launch(args=[
+            "--disable-gpu",
+            "--disable-gpu-compositing",
+            "--disable-software-rasterizer",
+            "--disable-dev-shm-usage",
+        ])
     return _browser
 
 

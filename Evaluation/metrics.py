@@ -590,9 +590,75 @@ def geometric_mean(values):
     return product ** (1.0 / len(values))
 
 
-def visual_eval_v3_multi(input_list, debug=False):
+def _serialize_blocks(blocks):
+    """Приводит блоки к JSON-совместимым типам (tuple/np.int64 -> list/int)."""
+    out = []
+    for b in blocks:
+        out.append({
+            "text": b["text"],
+            "bbox": [float(v) for v in b["bbox"]],
+            "color": [int(v) for v in b["color"]],
+        })
+    return out
+
+
+def _deserialize_blocks(blocks):
+    """Обратно к формату, ожидаемому остальным кодом (bbox/color как tuple)."""
+    out = []
+    for b in blocks:
+        out.append({
+            "text": b["text"],
+            "bbox": tuple(b["bbox"]),
+            "color": tuple(b["color"]),
+        })
+    return out
+
+
+def get_ref_blocks_cached(ref_html_path: str, cache_path: str = None):
+    """Блоки эталона (original_blocks) зависят только от ref.html, который не
+    меняется между прогонами разных моделей/чекпойнтов на одном датасете.
+    Раньше get_blocks_ocr_free(ref) пересчитывался (три рендера Chromium)
+    на КАЖДЫЙ вызов score_pair — даже если один и тот же эталон уже считался
+    для другого сэмпла/чекпойнта ранее. Теперь считаем один раз и кэшируем
+    на диск рядом с ref.html; повторные вызовы для того же ref.html просто
+    читают JSON без единого обращения к браузеру.
+
+    cache_path: если не задан, кладём рядом — ref.html -> ref_blocks.json.
+    """
+    ref_html_path = str(Path(ref_html_path).resolve())
+    if cache_path is None:
+        cache_path = ref_html_path.replace(".html", "_blocks.json")
+
+    if Path(cache_path).exists():
+        import json
+        cached = json.loads(Path(cache_path).read_text(encoding="utf-8"))
+        return _deserialize_blocks(cached)
+
+    # Примечание: если ref.png уже был отрендерен раньше (например, в
+    # prepare_and_render при подготовке эталонов), эта строка перерендерит
+    # его ещё раз - этот единственный лишний рендер эталона на весь прогон
+    # не стоит того, чтобы усложнять код условием "если файл уже свежий".
+    # Экономия кэша - в том, что ВСЁ ОСТАЛЬНОЕ (get_blocks_ocr_free с его
+    # тремя рендерами) считается один раз на ref.html, а не на каждый вызов
+    # score_pair для этого же эталона.
+    original_img = ref_html_path.replace(".html", ".png")
+    take_screenshot(ref_html_path, output_file=original_img, do_it_again=True)
+    original_blocks = _merge_blocks_by_bbox(get_blocks_ocr_free(original_img))
+
+    import json
+    Path(cache_path).write_text(
+        json.dumps(_serialize_blocks(original_blocks), ensure_ascii=False), encoding="utf-8"
+    )
+    return original_blocks
+
+
+def visual_eval_v3_multi(input_list, debug=False, original_blocks=None, original_img=None):
     """Оригинальная логика visual_eval_v3_multi из NoviScl/Design2Code, рендер
-    инлайнен как take_screenshot() в процессе вместо os.system(...)."""
+    инлайнен как take_screenshot() в процессе вместо os.system(...).
+
+    original_blocks / original_img: если переданы (см. get_ref_blocks_cached),
+    рендер и OCR-free разбор эталона не повторяются — используется готовый
+    результат. Если не переданы, поведение как раньше (расчёт с нуля)."""
     predict_html_list, original_html = input_list[0], input_list[1]
     predict_img_list = [html.replace(".html", ".png") for html in predict_html_list]
 
@@ -603,9 +669,14 @@ def visual_eval_v3_multi(input_list, debug=False):
         take_screenshot(predict_html, output_file=predict_img, do_it_again=True)
         predict_blocks_list.append(get_blocks_ocr_free(predict_img))
 
-    original_img = original_html.replace(".html", ".png")
-    take_screenshot(original_html, output_file=original_img, do_it_again=True)
-    original_blocks = _merge_blocks_by_bbox(get_blocks_ocr_free(original_img))
+    if original_blocks is None:
+        original_img = original_html.replace(".html", ".png")
+        take_screenshot(original_html, output_file=original_img, do_it_again=True)
+        original_blocks = _merge_blocks_by_bbox(get_blocks_ocr_free(original_img))
+    elif original_img is None:
+        # original_blocks передали, но не путь к картинке — картинка нужна
+        # ниже для CLIP (_calculate_clip_similarity_with_blocks читает файл).
+        original_img = original_html.replace(".html", ".png")
 
     consecutive_bonus, window_size = 0.1, 1
     return_score_list = []
@@ -674,13 +745,27 @@ def visual_eval_v3_multi(input_list, debug=False):
     return return_score_list
 
 
-def score_pair(pred_html_path: str, ref_html_path: str, debug: bool = False) -> dict:
-    """Считает официальные метрики Design2Code для одной пары (предсказание, эталон)."""
+def score_pair(pred_html_path: str, ref_html_path: str, debug: bool = False,
+               use_ref_cache: bool = True) -> dict:
+    """Считает официальные метрики Design2Code для одной пары (предсказание, эталон).
+
+    use_ref_cache: если True (по умолчанию), блоки эталона считаются через
+    get_ref_blocks_cached — при повторном вызове для того же ref_html_path
+    (например, другой чекпойнт модели на том же датасете) эталон не
+    рендерится и не разбирается заново, а читается из ref_blocks.json рядом
+    с ref.html. Если False — поведение как в оригинале (пересчёт с нуля)."""
     pred_html_path = str(Path(pred_html_path).resolve())
     ref_html_path = str(Path(ref_html_path).resolve())
 
     input_list = [[pred_html_path], ref_html_path]
-    result = visual_eval_v3_multi(input_list, debug=debug)
+
+    if use_ref_cache:
+        original_blocks = get_ref_blocks_cached(ref_html_path)
+        original_img = ref_html_path.replace(".html", ".png")
+        result = visual_eval_v3_multi(input_list, debug=debug,
+                                       original_blocks=original_blocks, original_img=original_img)
+    else:
+        result = visual_eval_v3_multi(input_list, debug=debug)
 
     _, final_score_arithmetic, multi = result[0]
     block_match, text_score, position, color, clip_score = multi
