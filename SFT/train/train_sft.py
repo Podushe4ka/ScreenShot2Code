@@ -1,4 +1,7 @@
+import json
 import logging
+import os
+import time
 from pathlib import Path
 
 from datasets.utils.logging import disable_progress_bar
@@ -21,16 +24,22 @@ from train.formatting import (
     to_message,
     visual_token_budget,
 )
-from train.run_info import format_meta, git_commit, make_run_name, save_run_info
 
 logger = logging.getLogger(__name__)
+
+
+def make_run_name(training_args) -> str:
+    """Уникальное имя рана: база + seed + отметка времени.
+    """
+    base = training_args.run_name
+    if not base or base == training_args.output_dir:
+        base = Path(training_args.output_dir).name or "run"
+    return f"{base}_s{training_args.seed}_{time.strftime('%Y%m%d-%H%M%S')}"
 
 
 def setup_logging(training_args) -> None:
     """INFO для своего кода, WARNING для библиотек, шум — только с rank 0.
 
-    Без этого при запуске на N карт каждый ранг печатает свои прогресс-бары и
-    свои отчёты, а INFO от httpx засыпает лог обращениями к Hub.
     """
     logging.basicConfig(
         level=logging.WARNING,
@@ -48,9 +57,6 @@ def _prepare_split(script_args, training_args, processor, split, required):
 
     Возвращает (dataset|None, report|None).
 
-    Вся тяжёлая часть — под `main_process_first`: главный процесс считает и
-    кладёт результат в кэш datasets, остальные ранги проходят по готовому.
-    Иначе одна и та же фильтрация выполняется столько раз, сколько карт.
     """
     with training_args.main_process_first(desc=f"подготовка сплита {split}"):
         dataset = load_sft_dataset(script_args.dataset_name, split, required=required)
@@ -73,11 +79,10 @@ def _prepare_split(script_args, training_args, processor, split, required):
 def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
     set_seed(training_args.seed)
     setup_logging(training_args)
-    # Печатаем только с главного процесса, иначе каждая строка дублируется
-    # столько раз, сколько карт.
+
     say = print if training_args.should_log else lambda *a, **k: None
 
-    training_args.run_name = make_run_name(training_args, model_args)
+    training_args.run_name = make_run_name(training_args)
     training_args.output_dir = str(Path(training_args.output_dir) / training_args.run_name)
     say(f"run: {training_args.run_name}\nвыход: {training_args.output_dir}")
 
@@ -95,10 +100,6 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
             "max_length не задан: отбраковки по длине не будет. Один слишком "
             "длинный сэмпл может уронить ран по OOM."
         )
-
-    # Замер бюджета и отбраковка идут ДО загрузки модели: узнать о том, что
-    # половина датасета не влезает, лучше сразу, а не по OOM через двадцать
-    # минут после начала скачивания весов.
     train_dataset, train_report = _prepare_split(
         script_args, training_args, processor, script_args.dataset_train_split, True
     )
@@ -133,26 +134,15 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
         "dropped_by_length": train_report.dropped if train_report else 0,
         "dropped_share": round(train_report.dropped_share, 4) if train_report else 0.0,
         "peft": bool(peft_config),
-        "git_commit": git_commit(),
     }
-    say(f"meta: {format_meta(meta)}")
-    # Снимок рана пишет только главный процесс: иначе 4 ранга одновременно
-    # открывают один файл на запись.
-    if training_args.should_save:
-        save_run_info(
-            training_args.output_dir,
-            script_args=script_args,
-            training_args=training_args,
-            model_args=model_args,
-            meta=meta,
-        )
+
+    say(f"meta: {json.dumps(meta, ensure_ascii=False, sort_keys=True)}")
 
     collate_fn = make_collate_fn(processor)
 
     model = AutoModelForImageTextToText.from_pretrained(
         model_args.model_name_or_path,
         revision=model_args.model_revision,
-        # transformers v5 and TRL v1 both renamed torch_dtype -> dtype.
         dtype=model_args.dtype,
         attn_implementation=model_args.attn_implementation,
     )
@@ -169,12 +159,24 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
     return trainer
 
 
+def enable_clearml_if_configured(training_args):
+    """Включает ClearML, только если в окружении лежат креды.
+
+    """
+    if not os.getenv("CLEARML_API_ACCESS_KEY"):
+        return
+    if training_args.report_to not in ([], ["none"], "none", None):
+        return
+    training_args.report_to = ["clearml"]
+    os.environ.setdefault("CLEARML_LOG_MODEL", "FALSE")
+    if training_args.should_log:
+        print("ClearML: найдены креды в окружении, логирование включено")
+
+
 def main(argv=None):
-    # Логирование настраивается в build_trainer (setup_logging): там уже
-    # известен process_index. Повторный basicConfig здесь ничего не даст —
-    # он игнорируется, если хендлеры root-логгера уже созданы.
     parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
     script_args, training_args, model_args = parser.parse_args_and_config(args=argv)
+    enable_clearml_if_configured(training_args)
     trainer = build_trainer(script_args, training_args, model_args)
     trainer.train()
     trainer.save_model(training_args.output_dir)

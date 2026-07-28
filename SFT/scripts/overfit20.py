@@ -96,8 +96,6 @@ def main():
         max_length = max_length_for(entry)
     print(f"max_length={max_length}")
 
-    # Датасет сохранён одним куском, без сплитов: eval здесь и не нужен —
-    # цель проверки в том, чтобы train loss схлопнулся.
     script_args = ScriptArguments(dataset_name=str(DATA_PATH))
     training_args = SFTConfig(
         output_dir="./train_res",

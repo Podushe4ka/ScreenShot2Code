@@ -73,8 +73,9 @@ SHARED_PARAMS = {
     "fp16": False,
     "gradient_checkpointing": True,
     "gradient_checkpointing_kwargs": {"use_reentrant": False},
-    # Логирование в трекер выключено: подключается одним значением
-    # ("wandb" / "tensorboard") после установки соответствующего пакета.
+    # Трекер выключен намеренно: конфиг должен работать у любого, кто склонирует
+    # репозиторий, без внешних учёток. ClearML включается сам, если в окружении
+    # есть CLEARML_API_ACCESS_KEY — см. main() в train/train_sft.py.
     "report_to": "none",
 }
 
