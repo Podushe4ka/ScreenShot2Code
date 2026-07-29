@@ -1,0 +1,16 @@
+{
+  "n_samples_requested": 484,
+  "n_samples_processed": 484,
+  "n_scored": 484,
+  "n_excluded_total": 0,
+  "n_generation_errors": 0,
+  "n_metric_errors": 0,
+  "n_other_errors": 0,
+  "block_match": 0.8791863186250299,
+  "text": 0.9296746078810674,
+  "position": 0.7916486786673252,
+  "color": 0.8147421211548591,
+  "clip": 0.8831201978951446,
+  "final_score": 0.8453754301502285,
+  "final_score_arithmetic": 0.8596743848446853
+}
