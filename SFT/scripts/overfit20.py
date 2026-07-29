@@ -11,6 +11,10 @@
 Если на 20 примерах лосс не падает на порядок — баг в пайплайне (маскирование
 меток, коллация, бюджет длины), а не в данных. Чинить здесь, до боевого рана.
 
+Веса пишутся в ./train_res/<run_name>/ (~8 ГБ для 4B в bf16) — чтобы можно было
+скормить переобученной модели тот же скриншот и посмотреть, что она отдаёт.
+Промежуточных чекпоинтов нет (`save_strategy="no"`), сохраняется только финал.
+
 Почему full FT, а не LoRA: LoRA проверяет меньше. При замороженной базе часть
 ошибок в маскировании и коллации маскируется самим адаптером — он просто не
 может выучить мусор. Full FT переобучается на 20 примерах гарантированно, и
@@ -38,8 +42,7 @@ from train.train_sft import build_trainer
 DATA_PATH = Path("data/websight20")
 DEFAULT_MODEL = "Qwen/Qwen3.5-4B"
 
-# Совпадает с configs/full_ft_qwen3_5_4b.yaml. Отклоняться незачем: смысл
-# проверки в том, чтобы прогнать боевые гиперпараметры, а не свои.
+
 LEARNING_RATE = 2.0e-5
 WEIGHT_DECAY = 0.05
 
@@ -106,9 +109,6 @@ def main():
         help="путь к конфигу ZeRO, напр. configs/deepspeed_zero2.json",
     )
     args = parser.parse_args()
-
-    # Ревизия, бюджет длины и микробатч берутся из одного источника — MODELS.
-    # Раньше ревизия была захардкожена в этом файле и разъезжалась с моделью.
     entry = entry_for(args.model_name_or_path)
     if entry is None and (
         args.revision is None
@@ -122,8 +122,6 @@ def main():
 
     revision = args.revision or entry["rev"]
     max_length = args.max_length or max_length_for(entry)
-    # full_bs описан не у всех моделей; 2 — консервативный дефолт, при котором
-    # логиты (bs, max_length, 248320) остаются в разумных пределах.
     batch_size = args.per_device_train_batch_size or entry.get("full_bs", 2)
     print(
         f"модель={args.model_name_or_path} rev={revision[:8]} "
@@ -136,8 +134,6 @@ def main():
         num_train_epochs=15,
         learning_rate=LEARNING_RATE,
         weight_decay=WEIGHT_DECAY,
-        # Константный LR без прогрева: на 20 примерах нужно увидеть чистое
-        # падение лосса, а косинус с warmup смазал бы картину.
         lr_scheduler_type="constant",
         warmup_ratio=0.0,
         optim="adamw_torch_fused",
@@ -148,7 +144,6 @@ def main():
         bf16=True,
         remove_unused_columns=False,
         max_length=max_length,
-        # full_gc: без чекпоинтинга full FT 4B падает по памяти уже на bs=4.
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
         deepspeed=args.deepspeed,
@@ -163,6 +158,12 @@ def main():
 
     trainer = build_trainer(script_args, training_args, model_args)
     trainer.train()
+
+    # Сохраняем ДО проверки лосса: если тест не прошёл, веса нужны тем более —
+    # по генерациям переобученной модели видно, что именно она выучила.
+    trainer.save_model(training_args.output_dir)
+    trainer.processing_class.save_pretrained(training_args.output_dir)
+    print(f"чекпоинт: {training_args.output_dir}")
 
     losses = [r["loss"] for r in trainer.state.log_history if "loss" in r]
     print(
