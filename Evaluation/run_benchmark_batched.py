@@ -99,6 +99,10 @@ def parse_args():
     parser.add_argument("--max-new-tokens", type=int, default=8192)
     parser.add_argument("--outdir", default="./design2code_results")
     parser.add_argument("--hf-dataset", default="HuggingFaceM4/WebSight")
+    parser.add_argument("--hf-config", default="v0.2",
+                         help="имя конфига датасета (WebSight -> v0.2; Design2Code-hf -> default).")
+    parser.add_argument("--hf-split", default="train",
+                         help="сплит датасета (у WebSight и Design2Code-hf -> train).")
     parser.add_argument("--shuffle-buffer-size", type=int, default=10_000,
                          help="buffer_size для ds.shuffle() в streaming-режиме HF datasets.")
     parser.add_argument("--enable-thinking", action="store_true")
@@ -229,7 +233,8 @@ def render_and_score_one(idx: int, pred_html: str, sample_dir_str: str) -> dict:
 # =============================================================================
 
 def iter_dataset_batches(hf_dataset: str, n_samples: int, batch_size: int, seed: int,
-                          shuffle_buffer_size: int, skip: int = 0):
+                          shuffle_buffer_size: int, skip: int = 0,
+                          hf_config: str = "v0.2", hf_split: str = "train"):
     """Генератор: отдаёт список HF-сэмплов (dict с ключами 'text'/'image') по
     batch_size штук за раз, пока не наберётся n_samples суммарно.
 
@@ -243,7 +248,7 @@ def iter_dataset_batches(hf_dataset: str, n_samples: int, batch_size: int, seed:
     from datasets import load_dataset
 
     print(f"[run_benchmark] Открываю {hf_dataset} в streaming-режиме (skip={skip})...")
-    ds_stream = load_dataset(hf_dataset, name="v0.2", split="train", streaming=True)
+    ds_stream = load_dataset(hf_dataset, name=hf_config, split=hf_split, streaming=True)
     ds_stream = ds_stream.shuffle(seed=seed, buffer_size=shuffle_buffer_size)
 
     it = iter(ds_stream)
@@ -542,6 +547,7 @@ def main():
     batch_gen = iter_dataset_batches(
         args.hf_dataset, args.n_samples, args.batch_size, args.seed,
         args.shuffle_buffer_size, skip=dataset_offset,
+        hf_config=args.hf_config, hf_split=args.hf_split,
     )
 
     batch_idx = start_batch_idx
