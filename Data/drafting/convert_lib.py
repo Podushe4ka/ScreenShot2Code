@@ -218,7 +218,12 @@ def process_one(html_text):
 
 
 # ------------------------------------------------------------- оценка токенов
-def qwen_image_tokens(w, h, patch=28):
-    """Приближённо: процессор Qwen зажимает площадь в [MIN,MAX] пикселей; 1 токен ≈ 28x28 px."""
+def qwen_image_tokens(w, h, patch=32):
+    """Приближённо: процессор Qwen зажимает площадь в [MIN,MAX] пикселей; 1 токен ≈ 32x32 px.
+
+    patch=32 = patch_size*merge_size у Qwen3.5 (модель зафиксирована PLAN §4). Раньше стояло 28
+    (Qwen2.5-VL) — это рассинхрон с MIN/MAX_PIXELS выше, которые уже считаны через 32: при 28
+    делитель 784 давал ~1672 токена на потолке 1.31 Мп вместо фактических 1280. Теперь
+    MAX_PIXELS/(32*32) = 1280 — сходится с бюджетом в filter_by_height.py."""
     px = min(max(w * h, MIN_PIXELS), MAX_PIXELS)
     return round(px / (patch * patch))
