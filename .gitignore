@@ -8,12 +8,12 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Сгенерированные датасеты (регенерируются из ноутбуков, в git не версионим)
-*drafting_pilot*/
+*pilot*/
 
 # Артефакты просмотра датасета (view_arrow.py)
 images/
 report.html
-verify/
+*verify*/
 
 # вывод analysis/compare_datasets.py
 Data/analysis/*.png
