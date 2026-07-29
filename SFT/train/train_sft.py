@@ -160,7 +160,7 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
 
 
 def enable_clearml_if_configured(training_args):
-    """Включает ClearML, только если в окружении лежат креды.
+    """Включает ClearML, если в окружении лежат креды.
 
     """
     if not os.getenv("CLEARML_API_ACCESS_KEY"):

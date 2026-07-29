@@ -30,8 +30,6 @@ from train.formatting import (
     to_message,
     visual_token_budget,
 )
-
-# Заведомо больше MAX_PIXELS — картинка обязана упереться в потолок.
 LARGE_IMAGE = (1280, 1280)
 
 
@@ -150,7 +148,6 @@ def check_polishing(processor, collate_fn, image_token_id):
     assert n_images == 2, f"ожидались 2 картинки, процессор увидел {n_images}"
     n_tokens = int((batch["input_ids"] == image_token_id).sum())
     budget = visual_token_budget(processor)
-    # Границы те же, что в check_visual_budget: потолок сверху, разумный низ.
     assert 2 * 0.8 * budget <= n_tokens <= 2 * budget, (
         f"две картинки заняли {n_tokens} токенов при потолке {2 * budget}"
     )

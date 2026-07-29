@@ -41,41 +41,26 @@ SHARED_PARAMS = {
     "attn_implementation": "flash_attention_2",
     "dataset_num_proc": 16,
     "remove_unused_columns": False,
-    # Сплиты берутся из датасета. dataset_test_split — это имя сплита, который
-    # попадёт в eval_dataset (номенклатура TRL, отдельного val_split там нет),
-    # поэтому кладём validation: настоящий тест на SFT не трогаем. Если такого
-    # сплита в датасете нет, eval отключается автоматически.
     "dataset_train_split": "train",
     "dataset_test_split": "validation",
     "dataloader_num_workers": 8,
-    # A100: бесплатное ускорение матмулов.
     "tf32": True,
     "num_train_epochs": 3,
     "warmup_ratio": 0.03,
-    # fused-версия: та же математика, меньше вызовов ядер. Требует CUDA.
     "optim": "adamw_torch_fused",
     "lr_scheduler_type": "cosine",
     "seed": 42,
     "logging_steps": 10,
-    # eval_steps/save_steps — ДОЛЯ от общего числа шагов (HF принимает float в
-    # [0,1)). Абсолютные числа тут вредны: на датасете в пару тысяч примеров
-    # шагов всего десятки, и save_steps=500 не срабатывает ни разу.
     "eval_strategy": "steps",
-    "eval_steps": 0.1,
+    "eval_steps": 0.25,
     "save_strategy": "steps",
-    "save_steps": 0.2,  # 5 чекпоинтов за ран, из них хранятся последние 2
+    "save_steps": 0.2,
     "save_total_limit": 2,
-    # Только веса, без состояний оптимизатора: чекпоинт full FT 4B — ~8 ГБ
-    # вместо ~56. Цена — упавший ран нельзя продолжить с чекпоинта, он
-    # начинается заново.
     "save_only_model": True,
     "bf16": True,
     "fp16": False,
     "gradient_checkpointing": True,
     "gradient_checkpointing_kwargs": {"use_reentrant": False},
-    # Трекер выключен намеренно: конфиг должен работать у любого, кто склонирует
-    # репозиторий, без внешних учёток. ClearML включается сам, если в окружении
-    # есть CLEARML_API_ACCESS_KEY — см. main() в train/train_sft.py.
     "report_to": "none",
 }
 
@@ -184,8 +169,6 @@ def lora_cfg(name: str, m: dict) -> dict:
 
 def full_cfg(name: str, m: dict) -> dict:
     lr = 1.0e-5 if m["lora_bs"] <= 2 else 2.0e-5
-    # Микробатч и пересчёт активаций задаются per-model: у маленьких моделей на
-    # 80 ГБ есть запас памяти, который выгоднее потратить на скорость.
     bs = m.get("full_bs", 1)
     return {
         "model_name_or_path": m["id"],
