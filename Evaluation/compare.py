@@ -128,6 +128,10 @@ def cmd_gen(args):
         max_model_len=args.max_model_len,
         trust_remote_code=True,
         limit_mm_per_prompt={"image": 1},
+        # На единицах сэмплов захват CUDA-графов (десятки сек–минута на модель)
+        # не окупается — eager-режим убирает этот старт-оверхед. Для больших
+        # прогонов из run_benchmark его наоборот стоит оставить включённым.
+        enforce_eager=args.enforce_eager,
     )
 
     # temperature=0 → детерминированный жадный декодинг: для визуального
@@ -252,12 +256,16 @@ def build_parser():
     g.add_argument("--dataset", required=True, help="путь к датасету (load_from_disk)")
     g.add_argument("--n", type=int, default=8)
     g.add_argument("--out", required=True, help="папка вывода для этой модели (label)")
-    g.add_argument("--max-new-tokens", type=int, default=8192)
+    g.add_argument("--max-new-tokens", type=int, default=4096,
+                   help="датасет ≤3072 токенов кода → 4096 с запасом хватает")
     g.add_argument("--temperature", type=float, default=0.0)
     g.add_argument("--enable-thinking", action="store_true")
     g.add_argument("--tensor-parallel-size", type=int, default=1)
     g.add_argument("--gpu-memory-utilization", type=float, default=0.89)
-    g.add_argument("--max-model-len", type=int, default=16384)
+    g.add_argument("--max-model-len", type=int, default=8192)
+    g.add_argument("--no-enforce-eager", dest="enforce_eager", action="store_false",
+                   help="включить захват CUDA-графов (медленнее старт, окупается только на больших N)")
+    g.set_defaults(enforce_eager=True)
     g.set_defaults(func=cmd_gen)
 
     s = sub.add_parser("stitch", help="склеить orig|base|ckpt.. в один PNG на сэмпл")
