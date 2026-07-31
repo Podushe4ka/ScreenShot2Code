@@ -19,7 +19,7 @@
 |---|---|
 | [`PLAN.md`](PLAN.md) | План работ и дорожная карта (этапы 0–4) |
 | [`list_data.md`](list_data.md) | Каталог датасетов |
-| [`analysis/`](analysis/) | **Этап 0** — EDA корпусов: ноутбуки по датасетам, методика метрик (`required_data.md`), заметки (`dataset_notes.md`), токен-счётчик (`token_len.py`), визуальное сравнение (`compare_datasets.py`) |
+| [`analysis/`](analysis/) | **Этап 0** — EDA корпусов: **сводка по всем датасетам ([`datasets_overview.md`](analysis/datasets_overview.md))**, ноутбуки по датасетам, методика метрик (`required_data.md`), заметки (`dataset_notes.md`), токен-счётчик (`token_len.py`), визуальное сравнение (`compare_datasets.py`) |
 | [`drafting/`](drafting/) | **Этап 1** — конвертер WebSight → формат контракта (логика в `convert_lib.py`, батч `convert_parallel.py`, `Dockerfile`, просмотр `view_arrow.py`, передача `HANDOFF.md`) |
 | [`papers/`](papers/) | PDF статей ко всем датасетам и методу ([индекс](papers/README.md)) |
 
