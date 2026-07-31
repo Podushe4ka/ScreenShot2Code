@@ -260,8 +260,9 @@ img.chart{width:100%;height:auto;display:block;border-radius:8px}
 
   <section>
     <h2><span class="n">6</span>Как модель видит скриншот</h2>
-    <p class="sub">Qwen режет картинку на патчи 32×32&nbsp;px (= визуальные токены) и зажимает площадь
-    в бюджет <b>2.10&nbsp;Мп = 2048 токенов</b>. Высокую страницу это ужимает → мельчает текст. Строка —
+    <p class="sub">Qwen режет картинку на патчи 32×32&nbsp;px (= визуальные токены) и держит их число в
+    потолке <b>2048</b> (при рендере шириной 1280 — картинка до <b>~1280×1640&nbsp;px</b>; выше — ужимает).
+    Высокую страницу это ужимает → мельчает текст. Строка —
     высота страницы (рендер 1280&nbsp;px шириной), в ячейке — во что превращается текст
     <b style="color:var(--ink)">16&nbsp;px</b> после Qwen&nbsp;smart_resize. Ниже ~8&nbsp;px модель уже не читает.</p>
     <div class="panel scroll" style="max-width:420px">
@@ -282,7 +283,7 @@ img.chart{width:100%;height:auto;display:block;border-radius:8px}
       <span><i class="sw" style="background:var(--warn)"></i>8–11 px — впритык</span>
       <span><i class="sw" style="background:var(--bad)"></i>&lt; 8 px — нечитаемо</span>
     </div>
-    <p class="note">При бюджете 2.10&nbsp;Мп страницы до ~3000&nbsp;px держат комфортный текст (≥11&nbsp;px),
+    <p class="note">При этом потолке страницы до ~3000&nbsp;px высотой держат комфортный текст (≥11&nbsp;px),
     выше — впритык. Ужатие идёт по <b>площади</b>: «×2–3» по площади = всего ×1.4–1.7 по стороне.</p>
 
     <h3>Визуальные токены по вьюпортам</h3>
@@ -290,7 +291,7 @@ img.chart{width:100%;height:auto;display:block;border-radius:8px}
       <table>
         <thead><tr><th>Вьюпорт</th><th>Пиксели</th><th>Визтокенов</th></tr></thead>
         <tbody>
-          <tr><td>десктоп-скрин ≥ 2.10M px (WebSight, WebCode2M)</td><td>зажат в потолок</td><td class="colhi">2 048</td></tr>
+          <tr><td>десктоп-скрин крупнее 1280×1640 (WebSight, WebCode2M)</td><td>зажат в потолок</td><td class="colhi">2 048</td></tr>
           <tr><td>WebUI desktop 1280×720</td><td>921 600</td><td>1 176</td></tr>
           <tr><td>WebUI tablet 768×1024</td><td>786 432</td><td>1 003</td></tr>
           <tr><td>WebUI mobile 375×812</td><td>304 500</td><td>388</td></tr>
