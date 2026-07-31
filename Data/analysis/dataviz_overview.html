@@ -85,6 +85,14 @@ td b,th b{color:var(--ink);font-weight:680}
 .barval{font-family:var(--mono);font-size:12px;color:var(--ink);min-width:52px;text-align:right}
 .foot{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted);font-family:var(--mono)}
 a{color:var(--accent)}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px}
+.calc label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted);font-weight:600}
+.calc input,.calc select{font-family:var(--mono);font-size:15px;padding:8px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg);color:var(--ink)}
+.calc input:focus,.calc select:focus{outline:2px solid var(--accent);outline-offset:1px}
+.calc-out{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:4px}
+.calc-big{font-family:var(--mono);font-size:clamp(26px,5vw,34px);font-weight:700;color:var(--accent);letter-spacing:-.02em}
+.calc-sub{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.formula{font-family:var(--mono);font-size:15px;color:var(--ink);background:var(--accent-soft);border:1px solid var(--line);border-radius:8px;padding:10px 14px;display:inline-block;margin-bottom:16px}
 </style>
 <div class="wrap">
   <p class="eyebrow">Screenshot2Code · описание данных · 31 июля</p>
@@ -283,7 +291,32 @@ a{color:var(--accent)}
   </section>
 
   <section>
-    <h2><span class="n">6</span>Открытые пункты</h2>
+    <h2><span class="n">6</span>Калькулятор времени обучения</h2>
+    <p class="sub">Время — произведение множителей. Меняй поля — пересчитывается сразу.
+    <code>per_device_batch</code> и <code>grad_accum</code> тут нет: они не меняют общее время
+    (compute-bound), только память.</p>
+    <div class="formula">T &asymp; (N &times; E / g) &times; t_s</div>
+    <div class="panel calc">
+      <div class="calc-grid">
+        <label>Сэмплов N<input id="cN" type="number" value="5370" min="1"></label>
+        <label>Эпох E<input id="cE" type="number" value="3" min="1" step="1"></label>
+        <label>GPU g<input id="cG" type="number" value="4" min="1" step="1"></label>
+        <label>Модель<select id="cM"><option value="1">4B &times;1</option><option value="2">8B &times;2</option><option value="5.5">27B &times;5.5</option></select></label>
+        <label>Тюнинг<select id="cF"><option value="1">LoRA &times;1</option><option value="1.5">full FT &times;1.5</option></select></label>
+        <label>Датасет<select id="cD"><option value="1">WebCode2M &times;1</option><option value="0.45">WebSight &times;0.45</option></select></label>
+      </div>
+      <div class="calc-out">
+        <div class="calc-big" id="cOut">&mdash;</div>
+        <div class="calc-sub" id="cDetail"></div>
+      </div>
+    </div>
+    <p class="note">Якорь <b>t_s &asymp; 2.3&nbsp;с</b>/сэмпл/GPU — замер 4&times;A100, Qwen3-VL-4B, LoRA,
+    WebCode2M (seqlen&le;8192). Множители модели/тюнинга/датасета домножают его. Инференс-сравнение
+    (мердж + gen) идёт отдельно: ~3&ndash;4 мин на модель + ~2&ndash;3 мин на мердж.</p>
+  </section>
+
+  <section>
+    <h2><span class="n">7</span>Открытые пункты</h2>
     <div class="panel">
       <table>
         <tbody>
@@ -299,3 +332,20 @@ a{color:var(--accent)}
 
   <p class="foot">источники: datasets_overview.md · experiments_plan.md · pixel_budget.py · EDA-ноутбуки · webcode2m purified (parquet, n≈4896)</p>
 </div>
+<script>
+(function(){
+  var TS=2.3;
+  function fmt(s){s=Math.max(0,Math.round(s));var h=Math.floor(s/3600),m=Math.floor((s%3600)/60);return h+" ч "+String(m).padStart(2,"0")+" мин";}
+  var ids=["cN","cE","cG","cM","cF","cD"];
+  function calc(){
+    var g=document.getElementById.bind(document);
+    var N=+g("cN").value||0,E=+g("cE").value||0,G=+g("cG").value||1,
+        M=+g("cM").value,F=+g("cF").value,D=+g("cD").value;
+    var ts=TS*M*F*D, T=(N*E/Math.max(1,G))*ts;
+    g("cOut").textContent=fmt(T);
+    g("cDetail").textContent="t_s = "+ts.toFixed(2)+" с/сэмпл · "+Math.round(T).toLocaleString("ru-RU")+" с всего";
+  }
+  ids.forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener("input",calc);el.addEventListener("change",calc);}});
+  calc();
+})();
+</script>
