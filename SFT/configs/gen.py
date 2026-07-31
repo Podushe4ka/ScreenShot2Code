@@ -32,6 +32,8 @@ PROMPT_OVERHEAD_TOKENS = 160
 
 MAX_LENGTH_ROUND_TO = 64
 
+
+
 TARGET_MODULES = [
     "q_proj", "k_proj", "v_proj", "o_proj",
     "gate_proj", "up_proj", "down_proj",
@@ -44,6 +46,11 @@ SHARED_PARAMS = {
     "dataset_train_split": "train",
     "dataset_test_split": "validation",
     "dataloader_num_workers": 8,
+    # Бакетинг по длине: батч собирается из сэмплов близкой длины, паддинг до
+    # самого длинного в батче почти ничего не съедает. Читает колонку `length`,
+    # которую проставляет filter_by_length. В transformers 5.x это пришло на
+    # смену флагу group_by_length.
+    "train_sampling_strategy": "group_by_length",
     "tf32": True,
     "num_train_epochs": 3,
     "warmup_ratio": 0.03,
@@ -65,12 +72,12 @@ SHARED_PARAMS = {
 }
 
 MODELS = {
-    "qwen2_5_vl_3b": {
-        "id": "Qwen/Qwen2.5-VL-3B-Instruct",
-        "rev": "66285546d2b821cf421d4f5eb2576359d3770cd3",
-        "factor": 28,         
-        "lora_bs": 16, "full_zero": 2,
-    },
+    # "qwen2_5_vl_3b": {
+    #     "id": "Qwen/Qwen2.5-VL-3B-Instruct",
+    #     "rev": "66285546d2b821cf421d4f5eb2576359d3770cd3",
+    #     "factor": 28,         
+    #     "lora_bs": 16, "full_zero": 2,
+    # },
     "qwen3_5_4b": {
         "id": "Qwen/Qwen3.5-4B",
         "rev": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
@@ -82,31 +89,31 @@ MODELS = {
         # при upcast в fp32 для лосса, плюс градиент.
         "full_bs": 2, "full_gc": True,
     },
-    "qwen3_vl_4b": {
-        "id": "Qwen/Qwen3-VL-4B-Instruct",
-        "rev": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
-        "factor": 32,
-        "lora_bs": 16, "full_zero": 2,
-        # Замерено на 2xA100 80 ГБ (full FT, ZeRO-2, max_length 2368):
-        #   bs=4 + чекпоинтинг         -> 20.1 с/шаг, 3.2 примера/с   (рабочий)
-        #   bs=8 + чекпоинтинг         -> 19.9 с/шаг                  (без выигрыша)
-        #   bs=4 без чекпоинтинга      -> OOM
-        # GPU util 99%, то есть упор в вычисления: батч и оптимизатор скорость
-        # не меняют. bs=4 оставлен как более безопасный по памяти.
-        "full_bs": 4, "full_gc": True,
-    },
-    "qwen2_5_vl_7b": {
-        "id": "Qwen/Qwen2.5-VL-7B-Instruct",
-        "rev": "cc594898137f460bfe9f0759e9844b3ce807cfb5",
-        "factor": 28,         
-        "lora_bs": 8, "full_zero": 2,
-    },
-    "qwen3_vl_8b": {
-        "id": "Qwen/Qwen3-VL-8B-Instruct",
-        "rev": "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b",
-        "factor": 32,
-        "lora_bs": 8, "full_zero": 2,
-    },
+    # "qwen3_vl_4b": {
+    #     "id": "Qwen/Qwen3-VL-4B-Instruct",
+    #     "rev": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+    #     "factor": 32,
+    #     "lora_bs": 16, "full_zero": 2,
+    #     # Замерено на 2xA100 80 ГБ (full FT, ZeRO-2, max_length 2368):
+    #     #   bs=4 + чекпоинтинг         -> 20.1 с/шаг, 3.2 примера/с   (рабочий)
+    #     #   bs=8 + чекпоинтинг         -> 19.9 с/шаг                  (без выигрыша)
+    #     #   bs=4 без чекпоинтинга      -> OOM
+    #     # GPU util 99%, то есть упор в вычисления: батч и оптимизатор скорость
+    #     # не меняют. bs=4 оставлен как более безопасный по памяти.
+    #     "full_bs": 4, "full_gc": True,
+    # },
+    # "qwen2_5_vl_7b": {
+    #     "id": "Qwen/Qwen2.5-VL-7B-Instruct",
+    #     "rev": "cc594898137f460bfe9f0759e9844b3ce807cfb5",
+    #     "factor": 28,         
+    #     "lora_bs": 8, "full_zero": 2,
+    # },
+    # "qwen3_vl_8b": {
+    #     "id": "Qwen/Qwen3-VL-8B-Instruct",
+    #     "rev": "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b",
+    #     "factor": 32,
+    #     "lora_bs": 8, "full_zero": 2,
+    # },
     "qwen3_5_9b": {
         "id": "Qwen/Qwen3.5-9B",
         "rev": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",

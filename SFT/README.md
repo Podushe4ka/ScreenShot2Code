@@ -9,30 +9,45 @@
 
 ```bash
 # 1. собрать образ (один раз, ~30-40 мин: компилируется flash-attn)
-docker build -t sft -f Dockerfile .
+./build.sh
 
 # 2. поднять контейнер
-docker run --gpus all -it --rm \
-  -v "$PWD":/workspace \
-  -v /path/to/dataset:/data \
-  -v ~/.cache/huggingface:/root/.cache/huggingface \
-  -e HF_TOKEN="$HF_TOKEN" \
-  --shm-size=16g \
-  sft bash
+export HF_TOKEN=...
+export CLEARML_API_ACCESS_KEY=...  CLEARML_API_SECRET_KEY=...   # опционально
+CLEARML_TASK=qwen3_5_4b_full_ft ./run.sh
 
 # 3. внутри контейнера: проверка, что всё на месте
-/opt/venv/bin/python -m scripts.smoke_test
+python -m scripts.smoke_test
 
 # 4. обучение (пример: 2 карты)
-CUDA_VISIBLE_DEVICES=0,1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-/opt/venv/bin/torchrun --nproc_per_node=2 --tee 3 \
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 --tee 3 \
   -m train.train_sft \
-  --config configs/lora_ft_qwen3_vl_4b.yaml \
-  --dataset_name /data
+  --config configs/lora_ft_qwen3_5_4b.yaml \
+  --dataset_name data/websight20
 ```
 
 Код в образ **не копируется** — он монтируется в `/workspace`, поэтому правки
 подхватываются без пересборки. Пересборка нужна только при смене зависимостей.
+
+### Что делает `run.sh`
+
+| | |
+|---|---|
+| `--user $(id -u):$(id -g)` | чекпоинты и логи в `/workspace` принадлежат хостовому пользователю, а не root. Отключается через `RUN_AS_ROOT=1` |
+| `HOME=/container-home` | у подменённого uid нет записи в `/etc/passwd`, docker выставил бы `HOME=/`. Каталог `.container-home/` в корне репозитория (в `.gitignore`), переживает перезапуски |
+| `HF_HOME=/hf-cache` | сюда монтируется `~/.cache/huggingface` с хоста: `/root/.cache` под non-root недоступен |
+| `PATH` с `/opt/venv/bin` | `python` и `torchrun` работают без полного пути |
+| `-v "$PWD":/workspace` | датасеты в `data/` уже внутри, отдельный `-v` для них не нужен |
+
+Секреты (`HF_TOKEN`, `CLEARML_API_*`) пробрасываются, только если заданы в
+окружении хоста. Переопределяемые переменные: `IMAGE`, `GPUS`, `SHM_SIZE`,
+`HF_CACHE`, `CLEARML_PROJECT`, `CLEARML_TASK`, `CUDA_VISIBLE_DEVICES`.
+
+Аргументы `./run.sh` уходят командой в контейнер, без них — `bash`:
+
+```bash
+./run.sh python -m scripts.overfit20
+```
 
 ### Если образ уже собран на этой машине
 

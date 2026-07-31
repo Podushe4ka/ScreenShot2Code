@@ -106,6 +106,17 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
     if train_report is not None:
         say(f"[{script_args.dataset_train_split}] {train_report.format()}")
 
+    if (
+        training_args.train_sampling_strategy == "group_by_length"
+        and training_args.length_column_name not in train_dataset.column_names
+    ):
+        logger.warning(
+            "Колонки '%s' нет — max_length не задан, значит отбраковка по длине "
+            "не запускалась и длины не измерены. Бакетинг по длине выключен.",
+            training_args.length_column_name,
+        )
+        training_args.train_sampling_strategy = "random"
+
     eval_dataset, eval_report = _prepare_split(
         script_args, training_args, processor, script_args.dataset_test_split, False
     )

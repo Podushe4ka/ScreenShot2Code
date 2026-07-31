@@ -7,6 +7,7 @@ remove_unused_columns: false
 dataset_train_split: train
 dataset_test_split: validation
 dataloader_num_workers: 8
+train_sampling_strategy: group_by_length
 tf32: true
 num_train_epochs: 3
 warmup_ratio: 0.03
@@ -15,7 +16,7 @@ lr_scheduler_type: cosine
 seed: 42
 logging_steps: 10
 eval_strategy: steps
-eval_steps: 0.1
+eval_steps: 0.25
 save_strategy: steps
 save_steps: 0.2
 save_total_limit: 2

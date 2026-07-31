@@ -73,7 +73,11 @@ def filter_by_length(
     num_proc: int | None = None,
 ) -> tuple[Dataset, LengthReport]:
     """Убрать сэмплы, не влезающие в `max_length`.
-    Возвращает отфильтрованный датасет и отчёт
+
+    Возвращает отфильтрованный датасет и отчёт. В датасет добавляется колонка
+    `length` — её читает `LengthGroupedSampler` при
+    `train_sampling_strategy=group_by_length`, чтобы собирать батчи из сэмплов
+    близкой длины и не тратить шаг на паддинг.
     """
     image_budget = visual_token_budget(processor)
     lengths = dataset.map(
@@ -104,5 +108,5 @@ def filter_by_length(
             "или скриншоты крупнее ожидаемого.",
             report.dropped_share * 100,
         )
-
-    return dataset.select(keep), report
+    kept = dataset.add_column("length", lengths).select(keep)
+    return kept, report

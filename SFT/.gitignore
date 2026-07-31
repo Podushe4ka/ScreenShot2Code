@@ -33,3 +33,5 @@ data/websight1k/
 .DS_Store
 .vscode/
 .idea/
+
+.container-home/
