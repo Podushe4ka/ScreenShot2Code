@@ -35,6 +35,14 @@ args=(
   -w /workspace
   -e HOME=/container-home
   -e HF_HOME=/hf-cache
+  # Подменённого uid нет в /etc/passwd — getpass.getuser() читает эти переменные
+  # раньше, чем /etc/passwd, иначе часть библиотек ловит KeyError.
+  -e USER="$(id -un)"
+  -e LOGNAME="$(id -un)"
+  # Иначе torch кладёт их в /tmp/torchinductor_<username> — пропадает между
+  # запусками, а в общем /tmp можно налететь на чужой каталог с тем же именем.
+  -e TORCHINDUCTOR_CACHE_DIR=/container-home/torchinductor
+  -e TRITON_CACHE_DIR=/container-home/triton
   # /opt/venv в PATH, чтобы работали python/torchrun без полного пути.
   # Остальное — PATH базового образа nvidia/cuda (нужен nvcc).
   -e PATH=/opt/venv/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
