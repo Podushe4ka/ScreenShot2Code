@@ -128,6 +128,7 @@ def cmd_gen(args):
         max_model_len=args.max_model_len,
         trust_remote_code=True,
         limit_mm_per_prompt={"image": 1},
+        mm_processor_kwargs={"min_pixels": args.min_pixels, "max_pixels": args.max_pixels},
         # На единицах сэмплов захват CUDA-графов (десятки сек–минута на модель)
         # не окупается — eager-режим убирает этот старт-оверхед. Для больших
         # прогонов из run_benchmark его наоборот стоит оставить включённым.
@@ -263,6 +264,10 @@ def build_parser():
     g.add_argument("--tensor-parallel-size", type=int, default=1)
     g.add_argument("--gpu-memory-utilization", type=float, default=0.89)
     g.add_argument("--max-model-len", type=int, default=8192)
+    # Пиксельный бюджет как в обучении (SFT/train/formatting.py) — иначе orig/base/ckpt
+    # сравниваются на разном разрешении входа.
+    g.add_argument("--min-pixels", type=int, default=262_144, help="min_pixels (256*32*32)")
+    g.add_argument("--max-pixels", type=int, default=2_097_152, help="max_pixels (Tier A, 2048*32*32)")
     g.add_argument("--no-enforce-eager", dest="enforce_eager", action="store_false",
                    help="включить захват CUDA-графов (медленнее старт, окупается только на больших N)")
     g.set_defaults(enforce_eager=True)

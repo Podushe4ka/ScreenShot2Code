@@ -55,6 +55,14 @@ def parse_args():
                          help="Доля памяти GPU, отдаваемая под KV-cache и веса (vLLM)")
     parser.add_argument("--max-model-len", type=int, default=16384,
                          help="Максимальная длина контекста (vLLM)")
+    # Пиксельный бюджет картинки. ДОЛЖЕН совпадать с обучением
+    # (SFT/train/formatting.py), иначе чекпоинт бенчится на разрешении, которого
+    # не видел в трейне: у хабовой Qwen лимитов нет и vLLM берёт родное
+    # разрешение картинки — сравнение base-vs-ckpt смазывается.
+    parser.add_argument("--min-pixels", type=int, default=262_144,
+                         help="min_pixels процессора (как в SFT). 262144 = 256*32*32")
+    parser.add_argument("--max-pixels", type=int, default=2_097_152,
+                         help="max_pixels процессора (как в SFT, Tier A). 2097152 = 2048*32*32")
     return parser.parse_args()
 
 
@@ -71,10 +79,14 @@ def load_design2code_dataset(hf_dataset: str, n_samples: int, seed: int):
     return ds
 
 
-def load_model(model_id_or_path: str, tensor_parallel_size: int, gpu_memory_utilization: float, max_model_len: int):
+def load_model(model_id_or_path: str, tensor_parallel_size: int, gpu_memory_utilization: float, max_model_len: int, min_pixels: int, max_pixels: int):
     """Загружает модель через vLLM. limit_mm_per_prompt={"image": 1} — каждому
     сэмплу нужна ровно одна картинка-скриншот; ограничиваем явно, чтобы vLLM
-    выделил под мультимодальный кэш ровно столько, сколько нужно."""
+    выделил под мультимодальный кэш ровно столько, сколько нужно.
+
+    mm_processor_kwargs передаёт min/max_pixels в image-процессор — тот же
+    бюджет, что в обучении. Без него vLLM берёт родное разрешение картинки, и
+    чекпоинт видит вход не из своего трейн-распределения."""
     from vllm import LLM
 
     print(f"[run_benchmark] Загружаю модель {model_id_or_path} через vLLM (при первом запуске скачается с HF)...")
@@ -85,6 +97,7 @@ def load_model(model_id_or_path: str, tensor_parallel_size: int, gpu_memory_util
         max_model_len=max_model_len,
         trust_remote_code=True,
         limit_mm_per_prompt={"image": 1},
+        mm_processor_kwargs={"min_pixels": min_pixels, "max_pixels": max_pixels},
     )
     return llm
 
@@ -135,7 +148,13 @@ def generate_html_batch(llm, images, max_new_tokens: int, enable_thinking: bool)
 
     print(f"Максимальный промпт: {max_len}, минимальный: {min_len}")
 
-    return [extract_html(output.outputs[0].text) for output in outputs]
+    # finish_reason из vLLM: "length" = упёрлись в max_new_tokens (HTML оборван),
+    # "stop" = модель сама закрыла ход. Нужно, чтобы отличить обрезку по токенам
+    # от нормального завершения при разборе метрик.
+    return [
+        (extract_html(output.outputs[0].text), output.outputs[0].finish_reason)
+        for output in outputs
+    ]
 
 def log_time(stage_name, duration_seconds):
     with open("time_results.txt", "a", encoding="utf-8") as f:
@@ -161,7 +180,7 @@ def main():
     # "Cannot re-initialize CUDA in forked subprocess". Поэтому сначала
     # поднимаем vLLM (он форкает воркеров сам, аккуратно), и только потом
     # трогаем CLIP/CUDA в главном процессе.
-    llm = load_model(args.model, args.tensor_parallel_size, args.gpu_memory_utilization, args.max_model_len)
+    llm = load_model(args.model, args.tensor_parallel_size, args.gpu_memory_utilization, args.max_model_len, args.min_pixels, args.max_pixels)
     from metrics import score_pair
     print("Thinking:", args.enable_thinking)
 
@@ -187,10 +206,10 @@ def main():
     print(f"[run_benchmark] Генерирую HTML для {len(ds)} сэмплов одним батчем...")
     images = [ds[i]["image"].convert("RGB") for i in range(len(ds))]
     try:
-        pred_html_list = generate_html_batch(llm, images, args.max_new_tokens, args.enable_thinking)
+        pred_pairs = generate_html_batch(llm, images, args.max_new_tokens, args.enable_thinking)
     except Exception as e:
         print(f"[run_benchmark] Ошибка батчевой генерации: {e}")
-        pred_html_list = [None] * len(ds)
+        pred_pairs = [(None, "batch_error")] * len(ds)
 
     end_generation = time.perf_counter()
     start_render = time.perf_counter()
@@ -205,13 +224,16 @@ def main():
         sample_dir = outdir / f"sample_{i:04d}"
         row = {"idx": i, "ref_n_img_replaced": ref_infos[i]["n_images_replaced"], "ref_render_ok": ref_infos[i]["render_ok"]}
 
-        if pred_html_list[i] is None:
+        pred_html, finish_reason = pred_pairs[i]
+        row["finish_reason"] = finish_reason
+
+        if pred_html is None:
             row["status"] = "generation_error"
             rows.append(row)
             continue
 
         pred_info = prepare_and_render(
-            pred_html_list[i],
+            pred_html,
             str(sample_dir / "pred.html"),
             str(sample_dir / "pred.png"),
         )

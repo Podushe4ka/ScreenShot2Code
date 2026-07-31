@@ -117,6 +117,13 @@ def parse_args():
     parser.add_argument("--no-resume", action="store_true",
                          help="Игнорировать progress.json и начать с батча 0 "
                               "(старые examples/ и results.csv будут перезаписаны).")
+    # Пиксельный бюджет картинки — ДОЛЖЕН совпадать с обучением
+    # (SFT/train/formatting.py). Без него vLLM берёт родное разрешение картинки,
+    # и чекпоинт бенчится вне своего трейн-распределения.
+    parser.add_argument("--min-pixels", type=int, default=262_144,
+                         help="min_pixels процессора (как в SFT). 262144 = 256*32*32")
+    parser.add_argument("--max-pixels", type=int, default=2_097_152,
+                         help="max_pixels процессора (как в SFT, Tier A). 2097152 = 2048*32*32")
     return parser.parse_args()
 
 
@@ -126,7 +133,7 @@ def parse_args():
 # целиком из старого файла.
 # =============================================================================
 
-def load_model(model_id_or_path: str, tensor_parallel_size: int, gpu_memory_utilization: float, max_model_len: int):
+def load_model(model_id_or_path: str, tensor_parallel_size: int, gpu_memory_utilization: float, max_model_len: int, min_pixels: int, max_pixels: int):
     from vllm import LLM
 
     print(f"[run_benchmark] Загружаю модель {model_id_or_path} через vLLM...")
@@ -137,6 +144,8 @@ def load_model(model_id_or_path: str, tensor_parallel_size: int, gpu_memory_util
         max_model_len=max_model_len,
         trust_remote_code=True,
         limit_mm_per_prompt={"image": 1},
+        # тот же пиксельный бюджет, что в обучении (см. комментарий в parse_args)
+        mm_processor_kwargs={"min_pixels": min_pixels, "max_pixels": max_pixels},
     )
 
 PROMPT = (
@@ -174,7 +183,12 @@ def generate_html_batch(llm, images, max_new_tokens: int, enable_thinking: bool)
         sampling_params=sampling_params,
         chat_template_kwargs={"enable_thinking": enable_thinking},
     )
-    return [extract_html(output.outputs[0].text) for output in outputs]
+    # (html, finish_reason): finish_reason="length" = упёрлись в max_new_tokens
+    # (HTML оборван), "stop" = модель сама закрыла ход.
+    return [
+        (extract_html(output.outputs[0].text), output.outputs[0].finish_reason)
+        for output in outputs
+    ]
 
 
 def prepare_ref_one(idx: int, ref_html: str, sample_dir_str: str) -> dict:
@@ -196,7 +210,7 @@ def prepare_ref_one(idx: int, ref_html: str, sample_dir_str: str) -> dict:
     return info
 
 
-def render_and_score_one(idx: int, pred_html: str, sample_dir_str: str) -> dict:
+def render_and_score_one(idx: int, pred_html: str, sample_dir_str: str, finish_reason: str = None) -> dict:
     """Идентично run_benchmark.py — воркер для ProcessPoolExecutor (или прямой
     вызов при num_workers<=1). Импорт render/metrics внутри функции (см.
     комментарий в оригинале про spawn + CUDA)."""
@@ -205,7 +219,7 @@ def render_and_score_one(idx: int, pred_html: str, sample_dir_str: str) -> dict:
     from metrics import score_pair
 
     sample_dir = _Path(sample_dir_str)
-    row = {"idx": idx}
+    row = {"idx": idx, "finish_reason": finish_reason}
 
     if pred_html is None:
         row["status"] = "generation_error"
@@ -324,7 +338,8 @@ def load_progress(progress_path: Path) -> dict:
     if progress_path.exists():
         return json.loads(progress_path.read_text(encoding="utf-8"))
     return {"next_batch_idx": 0, "dataset_offset": 0, "n_generation_errors": 0,
-            "n_metric_errors": 0, "n_other_errors": 0, "accumulator": None}
+            "n_metric_errors": 0, "n_other_errors": 0, "n_length_truncated": 0,
+            "accumulator": None}
 
 
 def save_progress(progress_path: Path, progress: dict):
@@ -407,10 +422,10 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
     print(f"[batch {batch_idx}] Генерирую HTML для {n} сэмплов...")
     images = [batch_samples[i]["image"].convert("RGB") for i in range(n)]
     try:
-        pred_html_list = generate_html_batch(llm, images, args.max_new_tokens, args.enable_thinking)
+        pred_pairs = generate_html_batch(llm, images, args.max_new_tokens, args.enable_thinking)
     except Exception as e:
         print(f"[batch {batch_idx}] Ошибка батчевой генерации: {e}")
-        pred_html_list = [None] * n
+        pred_pairs = [(None, "batch_error")] * n
     del images
 
     # --- рендер + метрики ---
@@ -418,7 +433,7 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
         rows = []
         for i in tqdm(range(n), desc=f"[batch {batch_idx}] Рендер + метрики"):
             sample_dir = batch_dir / f"sample_{i:05d}"
-            row = render_and_score_one(i, pred_html_list[i], str(sample_dir))
+            row = render_and_score_one(i, pred_pairs[i][0], str(sample_dir), pred_pairs[i][1])
             row["ref_n_img_replaced"] = ref_infos[i]["n_images_replaced"]
             row["ref_render_ok"] = ref_infos[i]["render_ok"]
             rows.append(row)
@@ -434,8 +449,8 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
         print(f"[batch {batch_idx}] Рендер+метрики на {args.num_workers} процессах...")
         with ProcessPoolExecutor(max_workers=args.num_workers, mp_context=ctx) as executor:
             futures = {
-                executor.submit(render_and_score_one, i, pred_html_list[i],
-                                 str(batch_dir / f"sample_{i:05d}")): i
+                executor.submit(render_and_score_one, i, pred_pairs[i][0],
+                                 str(batch_dir / f"sample_{i:05d}"), pred_pairs[i][1]): i
                 for i in range(n)
             }
             for future in tqdm(as_completed(futures), total=len(futures),
@@ -444,7 +459,7 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
                 try:
                     row = future.result()
                 except Exception as e:
-                    row = {"idx": i, "status": f"worker_error: {e}"}
+                    row = {"idx": i, "status": f"worker_error: {e}", "finish_reason": pred_pairs[i][1]}
                 row["ref_n_img_replaced"] = ref_infos[i]["n_images_replaced"]
                 row["ref_render_ok"] = ref_infos[i]["render_ok"]
                 rows_by_idx[i] = row
@@ -463,6 +478,13 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
     n_known_bad = n_generation_errors + n_metric_errors
     n_other_errors = int(len(df) - (df["status"] == "scored").sum() - n_known_bad) \
         if "status" in df else 0
+
+    # Обрезка по лимиту токенов: finish_reason="length" = модель упёрлась в
+    # max_new_tokens и HTML оборван. Это НЕ generation_error (сэмпл всё равно
+    # отрендерится и посчитается), но метрики по нему занижены — считаем отдельно,
+    # чтобы отличить «модель пишет слишком длинно» от упавших батчей.
+    n_length_truncated = int((df["finish_reason"] == "length").sum()) \
+        if "finish_reason" in df else 0
 
     # --- выбираем случайные примеры ДО удаления файлов батча ---
     scored_idx = df.index[df["status"] == "scored"].tolist()
@@ -495,7 +517,7 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
     # --- полная очистка временных файлов батча ---
     shutil.rmtree(batch_dir, ignore_errors=True)
 
-    return examples_df, ok_df, n_generation_errors, n_metric_errors, n_other_errors
+    return examples_df, ok_df, n_generation_errors, n_metric_errors, n_other_errors, n_length_truncated
 
 
 def append_examples_csv(results_path: Path, examples_df: pd.DataFrame):
@@ -532,12 +554,13 @@ def main():
     n_generation_errors = progress.get("n_generation_errors", 0)
     n_metric_errors = progress.get("n_metric_errors", 0)
     n_other_errors = progress.get("n_other_errors", 0)
+    n_length_truncated = progress.get("n_length_truncated", 0)
 
     if start_batch_idx > 0:
         print(f"[run_benchmark] Резюмирую с батча {start_batch_idx} "
               f"(уже обработано сэмплов: {dataset_offset}, накоплено метрик: {accumulator.count}).")
 
-    llm = load_model(args.model, args.tensor_parallel_size, args.gpu_memory_utilization, args.max_model_len)
+    llm = load_model(args.model, args.tensor_parallel_size, args.gpu_memory_utilization, args.max_model_len, args.min_pixels, args.max_pixels)
 
     # # metrics.py импортируется только после LLM (см. run_benchmark.py — CUDA/fork).
     # import metrics  # noqa: F401  (гарантирует, что CLIP грузится один раз здесь)
@@ -556,7 +579,7 @@ def main():
         print(f"\n=== Батч {batch_idx} ({len(batch_samples)} сэмплов, "
               f"offset {dataset_offset}..{dataset_offset + len(batch_samples)}) ===")
 
-        examples_df, ok_df, n_gen_err, n_met_err, n_other_err = process_one_batch(
+        examples_df, ok_df, n_gen_err, n_met_err, n_other_err, n_len_trunc = process_one_batch(
             llm, batch_samples, batch_idx, work_root, examples_root, args, rng,
         )
 
@@ -565,8 +588,14 @@ def main():
         n_generation_errors += n_gen_err
         n_metric_errors += n_met_err
         n_other_errors += n_other_err
+        n_length_truncated += n_len_trunc
         dataset_offset += len(batch_samples)
         batch_idx += 1
+
+        if n_len_trunc > 0:
+            print(f"[batch {batch_idx - 1}] Обрезано по лимиту токенов "
+                  f"(finish_reason=length): {n_len_trunc}/{len(batch_samples)} "
+                  f"({n_len_trunc / len(batch_samples):.1%}) — метрики по ним занижены.")
 
         progress = {
             "next_batch_idx": batch_idx,
@@ -574,6 +603,7 @@ def main():
             "n_generation_errors": n_generation_errors,
             "n_metric_errors": n_metric_errors,
             "n_other_errors": n_other_errors,
+            "n_length_truncated": n_length_truncated,
             "accumulator": accumulator.to_state(),
         }
         save_progress(progress_path, progress)
@@ -612,6 +642,9 @@ def main():
         "n_generation_errors": n_generation_errors,
         "n_metric_errors": n_metric_errors,
         "n_other_errors": n_other_errors,
+        # ортогонально n_excluded_total: обрезанные по токенам сэмплы обычно
+        # всё равно scored, но с заниженными метриками — поэтому отдельным полем.
+        "n_length_truncated": n_length_truncated,
         **final_means,
     }
     summary_path = outdir / "summary.json"
@@ -623,6 +656,10 @@ def main():
     print(f"Исключено из среднего: {n_excluded_total} "
           f"(generation_error: {n_generation_errors}, metric_error: {n_metric_errors}, "
           f"прочее: {n_other_errors})")
+    if dataset_offset:
+        print(f"Обрезано по лимиту токенов (finish_reason=length): {n_length_truncated} "
+              f"({n_length_truncated / dataset_offset:.1%} от обработанных) — "
+              f"такие сэмплы обычно scored, но с заниженными метриками.")
     print("Итоговые средние по всем оценённым сэмплам (взвешенно, не среднее средних батчей):")
     for k, v in final_means.items():
         print(f"  {k}: {v:.4f}" if not math.isnan(v) else f"  {k}: nan")

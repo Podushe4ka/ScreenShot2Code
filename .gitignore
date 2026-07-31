@@ -19,4 +19,4 @@ report.html
 Data/analysis/*.png
 
 # выхлоп бенча (Evaluation/run.sh -> bench_results, +_base/_merged для абляций) — генерируемое
-Evaluation/bench_results*/
+Evaluation/bench_results*
