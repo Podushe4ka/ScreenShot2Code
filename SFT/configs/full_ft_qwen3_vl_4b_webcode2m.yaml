@@ -1,0 +1,50 @@
+# WebCode2M FULL fine-tuning (Qwen3-VL-4B). Полный аналог lora_ft_qwen3_vl_4b_webcode2m.yaml,
+# но без LoRA — обучаются все веса. Проверяем гипотезу «ёмкости r16 не хватает».
+# Отличия от LoRA-конфига:
+#   • нет use_peft/lora_* — full FT;
+#   • DeepSpeed ZeRO-2 (шардит градиенты+состояния оптимизатора по картам) — иначе full FT 4B
+#     при seqlen 8192 не влезает;
+#   • learning_rate 2e-5 (для full FT, не 2e-4 как у LoRA);
+#   • per_device_train_batch_size 1 (при seqlen 8192 логиты лосса + оптимизатор доминируют),
+#     эффективный батч добираем grad_accum. Значения ниже — под 3 карты (0,2,3):
+#     1 × 22 × 3 = 66. При другом числе карт пересчитать accum (цель эфф.батч ~64) или
+#     перекрыть флагом в командной строке.
+# max_pixels клэмпит процессор (см. SFT/train/formatting.py, Tier A 2.10 Мп); датасет
+# дополнительно прогнан через height-фильтр (webcode2m_le3072 / webcode2m_split).
+model_name_or_path: Qwen/Qwen3-VL-4B-Instruct
+model_revision: ebb281ec70b05090aa6165b016eac8ec08e71b17
+dtype: bfloat16
+attn_implementation: flash_attention_2
+dataset_num_proc: 16
+remove_unused_columns: false
+dataset_train_split: train
+dataset_test_split: validation
+dataloader_num_workers: 8
+tf32: true
+num_train_epochs: 3
+warmup_ratio: 0.03
+optim: adamw_torch_fused
+lr_scheduler_type: cosine
+seed: 42
+logging_steps: 10
+eval_strategy: steps
+eval_steps: 0.25
+save_strategy: steps
+save_steps: 0.2
+save_total_limit: 2
+save_only_model: true
+bf16: true
+fp16: false
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+report_to: none
+max_length: 8192
+output_dir: sft-output/full_ft_qwen3_vl_4b_webcode2m
+run_name: full_ft_qwen3_vl_4b_webcode2m
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1
+gradient_accumulation_steps: 22
+learning_rate: 2.0e-05
+weight_decay: 0.05
+deepspeed: configs/deepspeed_zero2.json
