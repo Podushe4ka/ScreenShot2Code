@@ -50,7 +50,7 @@ def recommend_max_length(*args, **kwargs):
 # ------------------------------------------------------------------ константы
 RENDER_WIDTH = 1280                    # ширина вьюпорта ре-рендера; высота — по контенту
 MIN_PIXELS = 256 * 32 * 32             # оценка визуальных токенов (как в SFT/train/formatting.py)
-MAX_PIXELS = 1280 * 32 * 32
+MAX_PIXELS = 2048 * 32 * 32            # Tier A (2.10 Мп): синхронно с SFT/train/formatting.py
 TOKENIZER_ID_DEFAULT = "Qwen/Qwen3-VL-8B-Instruct"
 
 # серые плейсхолдеры — РОВНО как в Evaluation/Experiments.ipynb (менять синхронно с eval)

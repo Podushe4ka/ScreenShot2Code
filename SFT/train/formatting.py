@@ -39,7 +39,7 @@ EDITING_SUFFIX = (
 )
 
 MIN_PIXELS = 262_144
-MAX_PIXELS = 1_310_720
+MAX_PIXELS = 2048 * 32 * 32  # Tier A (2.10 Мп): читаемость высоких страниц; синхронно с Data/drafting/convert_lib.py
 
 RESPONSE_TEMPLATE = "<|im_start|>assistant\n"
 TURN_END = "<|im_end|>"

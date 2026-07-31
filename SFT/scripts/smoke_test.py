@@ -32,7 +32,8 @@ from train.formatting import (
 )
 
 # Заведомо больше MAX_PIXELS — картинка обязана упереться в потолок.
-LARGE_IMAGE = (1280, 1280)
+# 1280x2560 = 3.28 Мп — выше любого из рассмотренных бюджетов (Tier A/B/C).
+LARGE_IMAGE = (1280, 2560)
 
 
 def _drafting_example(html="<!DOCTYPE html><html><body><h1>Hi</h1></body></html>"):

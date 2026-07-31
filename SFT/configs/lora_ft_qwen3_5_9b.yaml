@@ -26,7 +26,7 @@ gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: false
 report_to: none
-max_length: 2368
+max_length: 3136
 output_dir: sft-output/lora_ft_qwen3_5_9b
 run_name: lora_ft_qwen3_5_9b
 per_device_train_batch_size: 8

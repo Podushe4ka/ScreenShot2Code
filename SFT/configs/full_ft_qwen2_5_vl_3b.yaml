@@ -26,7 +26,7 @@ gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: false
 report_to: none
-max_length: 2752
+max_length: 3776
 output_dir: sft-output/full_ft_qwen2_5_vl_3b
 run_name: full_ft_qwen2_5_vl_3b
 per_device_train_batch_size: 1
