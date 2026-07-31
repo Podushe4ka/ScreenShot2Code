@@ -24,13 +24,6 @@ def tlen(texts):
     return np.array(out)
 
 # --- реальные данные ---
-w2 = []
-with open("/Users/vyacheslav/Screenshot2Code/ScreenShot2Code/Data/analysis/web2code_stream_result.csv") as f:
-    for r in csv.DictReader(f):
-        try: w2.append(int(r["html_tokens"]))
-        except: pass
-w2 = np.array(w2)
-
 ds = load_from_disk("/Users/vyacheslav/Screenshot2Code/ScreenShot2Code/Data/websight_drafting_pilot")
 ws = tlen([ds[i]["target_html"] for i in range(min(2000, len(ds)))])
 
@@ -65,11 +58,10 @@ def hist(ax, data, xmax, title, budget=True):
     ax.set_xlabel("длина кода, токены", fontsize=9)
     style(ax)
 
-# === Фигура 1: три реальных датасета ===
-fig, axes = plt.subplots(1, 3, figsize=(13.5, 3.4))
-hist(axes[0], w2, 4000, f"Web2Code   med {int(np.median(w2))} · p99 {int(np.percentile(w2,99))}")
-hist(axes[1], ws, 6000, f"WebSight (drafting)   med {int(np.median(ws))} · p99 {int(np.percentile(ws,99))}")
-hist(axes[2], wc, 12000, f"WebCode2M   med {int(np.median(wc))} · p99 {int(np.percentile(wc,99))}")
+# === Фигура 1: реальные датасеты (WebSight-drafting, WebCode2M) ===
+fig, axes = plt.subplots(1, 2, figsize=(10, 3.6))
+hist(axes[0], ws, 6000, f"WebSight (drafting)   med {int(np.median(ws))} · p99 {int(np.percentile(ws,99))}")
+hist(axes[1], wc, 12000, f"WebCode2M   med {int(np.median(wc))} · p99 {int(np.percentile(wc,99))}")
 fig.tight_layout()
 fig.savefig(f"{OUT}/hist_datasets.png", transparent=True, bbox_inches="tight")
 plt.close(fig)
@@ -87,6 +79,5 @@ fig.savefig(f"{OUT}/hist_webui.png", transparent=True, bbox_inches="tight")
 plt.close(fig)
 
 print("saved hist_datasets.png, hist_webui.png")
-print(f"Web2Code n={len(w2)} med={int(np.median(w2))}")
 print(f"WebSight n={len(ws)} med={int(np.median(ws))}")
 print(f"WebCode2M n={len(wc)} med={int(np.median(wc))} p99={int(np.percentile(wc,99))}")
