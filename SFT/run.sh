@@ -55,6 +55,11 @@ args=(
 
 if [[ "${RUN_AS_ROOT:-0}" != "1" ]]; then
   args+=(--user "$(id -u):$(id -g)")
+  # Таблицы пользователей хоста — чтобы uid резолвился в имя: иначе bash пишет
+  # "I have no name!", groups ругается, а getpwuid() кидает KeyError.
+  if grep -q "^[^:]*:[^:]*:$(id -u):" /etc/passwd 2>/dev/null; then
+    args+=(-v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro)
+  fi
 fi
 
 # Секреты пробрасываем только если заданы, иначе внутри окажется пустая

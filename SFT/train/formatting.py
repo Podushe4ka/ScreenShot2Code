@@ -1,6 +1,8 @@
 import logging
 import math
 
+from datasets import concatenate_datasets
+
 logger = logging.getLogger(__name__)
 
 DRAFTING_PROMPT = (
@@ -124,6 +126,22 @@ def to_message(example):
             },
         ]
     return example
+
+
+def add_messages(dataset):
+    """Разложить сэмплы в messages, не притрагиваясь к колонке images.
+
+    `to_message` читает только текстовые поля, но `map` материализует все
+    колонки: картинки декодировались бы в PIL и кодировались обратно в PNG на
+    каждой строке. Поэтому messages считаются по проекции без картинок, а
+    результат приклеивается колонкой — `concatenate_datasets(axis=1)` делает
+    это на диске, в отличие от `add_column`, которому нужен весь HTML в памяти.
+    """
+    text_columns = [name for name in dataset.column_names if name != "images"]
+    messages = dataset.select_columns(text_columns).map(
+        to_message, remove_columns=text_columns, desc="Разбор сэмплов в messages"
+    )
+    return concatenate_datasets([dataset, messages], axis=1)
 
 
 def _find_subsequence(seq: list[int], sub: list[int], start: int = 0) -> int | None:

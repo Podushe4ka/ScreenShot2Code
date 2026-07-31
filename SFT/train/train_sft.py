@@ -20,8 +20,8 @@ from data.loader import load_sft_dataset
 from train.formatting import (
     MAX_PIXELS,
     MIN_PIXELS,
+    add_messages,
     make_collate_fn,
-    to_message,
     visual_token_budget,
 )
 
@@ -63,7 +63,7 @@ def _prepare_split(script_args, training_args, processor, split, required):
         if dataset is None:
             return None, None
 
-        dataset = dataset.map(to_message)
+        dataset = add_messages(dataset)
         if training_args.max_length is None:
             return dataset, None
 

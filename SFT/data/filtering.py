@@ -36,6 +36,22 @@ def estimate_example_length(example: dict, processor, image_budget: int) -> int:
     return n_text_tokens - n_images + n_images * image_budget
 
 
+_ROWS_PER_WORKER = 256
+
+
+def _worker_count(num_proc: int | None, n_rows: int) -> int | None:
+    """Сколько процессов реально имеет смысл поднимать под замер длины.
+
+    На маленьком сплите старт воркера (импорт torch/transformers на каждый)
+    дороже самой работы: 20 сэмплов в 16 процессах считаются дольше, чем в
+    одном. `None` — датасет считается в текущем процессе, без форка.
+    """
+    if not num_proc or num_proc < 2:
+        return None
+    workers = min(num_proc, max(1, n_rows // _ROWS_PER_WORKER))
+    return workers if workers > 1 else None
+
+
 @dataclass
 class LengthReport:
     """
@@ -80,10 +96,15 @@ def filter_by_length(
     близкой длины и не тратить шаг на паддинг.
     """
     image_budget = visual_token_budget(processor)
-    lengths = dataset.map(
+
+    # Замер идёт только по messages: картинки в них — плейсхолдеры без пикселей.
+    # Без проекции map материализует и колонку images, то есть декодирует
+    # каждый скриншот в PIL, чтобы тут же его выбросить.
+    text_only = dataset.select_columns(["messages"])
+    lengths = text_only.map(
         lambda ex: {"_len": estimate_example_length(ex, processor, image_budget)},
-        num_proc=num_proc,
-        remove_columns=dataset.column_names,
+        num_proc=_worker_count(num_proc, len(text_only)),
+        remove_columns=text_only.column_names,
         desc="Измерение длины сэмплов",
     )["_len"]
 
