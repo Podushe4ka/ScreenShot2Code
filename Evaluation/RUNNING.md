@@ -19,6 +19,14 @@ Dockerfile, если он не нужен. `build.sh` проверяет это 
 
 ## 2. Запустить
 
+Вариант A* - мой любимый
+
+Здесь есть почти все необходимые параметры
+
+```bash
+GPUS='"device=2"' ./run.sh --n-samples 2000 --tensor-parallel-size 1 --batch-size 2000 --gpu-memory-utilization 0.90 --model /mnt/storage-1/ScreenShot2Code/model_weights/train_res_s42_20260729-185222/ --num-workers 112 --max-model-len 25000
+```
+
 Вариант А — `run.sh` (docker run напрямую):
 
 ```bash
