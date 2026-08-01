@@ -70,7 +70,6 @@ args=(
   -e PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
   -e CLEARML_API_HOST="${CLEARML_API_HOST:-https://api.clear.ml}"
   -e CLEARML_PROJECT="${CLEARML_PROJECT:-Screenshot2Code}"
-  -e CLEARML_TASK="${CLEARML_TASK:-qwen3_5_4b_full_ft}"
   -e CLEARML_LOG_MODEL="${CLEARML_LOG_MODEL:-FALSE}"
 )
 
@@ -83,7 +82,7 @@ if [[ "${RUN_AS_USER:-0}" == "1" ]]; then
 fi
 
 for var in HF_TOKEN CLEARML_API_ACCESS_KEY CLEARML_API_SECRET_KEY \
-           CLEARML_WEB_HOST CLEARML_FILES_HOST CUDA_VISIBLE_DEVICES; do
+           CLEARML_WEB_HOST CLEARML_FILES_HOST CLEARML_TASK CUDA_VISIBLE_DEVICES; do
   if [[ -n "${!var:-}" ]]; then
     args+=(-e "$var=${!var}")
   fi

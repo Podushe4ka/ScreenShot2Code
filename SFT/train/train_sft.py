@@ -87,6 +87,7 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
 
     training_args.run_name = make_run_name(training_args)
     training_args.output_dir = str(Path(training_args.output_dir) / training_args.run_name)
+    os.environ.setdefault("CLEARML_TASK", training_args.run_name)
     say(f"run: {training_args.run_name}\nвыход: {training_args.output_dir}")
 
     peft_config = get_peft_config(model_args)
