@@ -7,6 +7,8 @@ remove_unused_columns: false
 dataset_train_split: train
 dataset_test_split: validation
 dataloader_num_workers: 8
+dataloader_persistent_workers: true
+dataloader_prefetch_factor: 4
 train_sampling_strategy: group_by_length
 tf32: true
 num_train_epochs: 1
@@ -14,8 +16,9 @@ warmup_ratio: 0.03
 optim: adamw_torch_fused
 lr_scheduler_type: cosine
 seed: 42
-logging_steps: 10
+logging_steps: 1
 logging_first_step: true
+include_num_input_tokens_seen: true
 eval_strategy: steps
 eval_steps: 0.3
 save_strategy: steps

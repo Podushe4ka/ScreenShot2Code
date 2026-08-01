@@ -26,6 +26,15 @@ if [[ -f "$ENV_FILE" ]]; then
   echo "[run] загружен $ENV_FILE"
 fi
 
+PROJECT_SUBDIR="$(basename "$PWD")"
+if [[ -d "../.git" ]]; then
+  MOUNT_SRC="$(cd .. && pwd)"
+  WORKDIR="/workspace/$PROJECT_SUBDIR"
+else
+  MOUNT_SRC="$PWD"
+  WORKDIR="/workspace"
+fi
+
 IMAGE="${IMAGE:-sft}"
 GPUS="${GPUS:-all}"
 SHM_SIZE="${SHM_SIZE:-16g}"
@@ -47,11 +56,11 @@ args=(
   --gpus "$GPUS"
   --rm
   --shm-size="$SHM_SIZE"
-  -v "$PWD":/workspace
+  -v "$MOUNT_SRC":/workspace
   -v "$CONTAINER_HOME":/container-home
   -v "$HF_CACHE":/hf-cache
   -v "$DATA_DIR":/data
-  -w /workspace
+  -w "$WORKDIR"
   -e HOME=/container-home
   -e HF_HOME=/hf-cache
   -e TMPDIR=/container-home/tmp
