@@ -123,14 +123,27 @@ def to_message(example):
     return example
 
 
-def add_messages(dataset):
+def build_messages(dataset):
     """
-    Раскладывает сэмплы в messages, не притрагиваясь к колонке images.
+    Плоская таблица с единственной колонкой messages.
+
+    Отдельно от `add_messages`, потому что склейка по axis=1 даёт
+    `ConcatenationTable`, а её нельзя нарезать на шарды и передать воркерам
+    `map(num_proc>1)` — распаковка на стороне воркера падает в
+    `ConcatenationTable.__setstate__`. Замер длины ходит по этой таблице.
     """
     text_columns = [name for name in dataset.column_names if name != "images"]
-    messages = dataset.select_columns(text_columns).map(
+    return dataset.select_columns(text_columns).map(
         to_message, remove_columns=text_columns, desc="Разбор сэмплов в messages"
     )
+
+
+def add_messages(dataset, messages=None):
+    """
+    Приклеивает messages к датасету, не притрагиваясь к колонке images.
+    """
+    if messages is None:
+        messages = build_messages(dataset)
     return concatenate_datasets([dataset, messages], axis=1)
 
 

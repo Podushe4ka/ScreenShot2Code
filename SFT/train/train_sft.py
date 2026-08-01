@@ -21,6 +21,7 @@ from train.formatting import (
     MAX_PIXELS,
     MIN_PIXELS,
     add_messages,
+    build_messages,
     make_collate_fn,
     visual_token_budget,
 )
@@ -63,12 +64,14 @@ def _prepare_split(script_args, training_args, processor, split, required):
         if dataset is None:
             return None, None
 
-        dataset = add_messages(dataset)
+        messages = build_messages(dataset)
+        dataset = add_messages(dataset, messages)
         if training_args.max_length is None:
             return dataset, None
 
         dataset, report = filter_by_length(
             dataset,
+            messages,
             processor,
             max_length=training_args.max_length,
             num_proc=training_args.dataset_num_proc,
