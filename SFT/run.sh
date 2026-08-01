@@ -5,10 +5,13 @@
 #   ./run.sh python -m scripts.smoke_test      # разовая команда
 #   CLEARML_TASK=qwen3_5_4b_lora ./run.sh
 #   GPUS='"device=0,1"' ./run.sh
-#   RUN_AS_ROOT=1 ./run.sh                     # без подмены uid/gid
+#   RUN_AS_USER=1 ./run.sh                     # от uid/gid хоста, а не root
 #
-# Контейнер работает от uid/gid хоста, поэтому чекпоинты и логи в /workspace
-# создаются с правами текущего пользователя, а не root.
+# По умолчанию контейнер работает от root: эксперименты запускает один человек,
+# и файлы, созданные root-ом, ему не мешают. RUN_AS_USER=1 нужен, если к
+# чекпоинтам и кэшу HF будет ходить кто-то ещё — тогда они создаются от
+# текущего пользователя. Учтите: смешивать режимы нельзя, root-запуск оставляет
+# в кэше файлы, которые потом не перезапишет обычный uid.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -35,10 +38,6 @@ args=(
   -w /workspace
   -e HOME=/container-home
   -e HF_HOME=/hf-cache
-  # Подменённого uid нет в /etc/passwd — getpass.getuser() читает эти переменные
-  # раньше, чем /etc/passwd, иначе часть библиотек ловит KeyError.
-  -e USER="$(id -un)"
-  -e LOGNAME="$(id -un)"
   # Иначе torch кладёт их в /tmp/torchinductor_<username> — пропадает между
   # запусками, а в общем /tmp можно налететь на чужой каталог с тем же именем.
   -e TORCHINDUCTOR_CACHE_DIR=/container-home/torchinductor
@@ -53,10 +52,14 @@ args=(
   -e CLEARML_LOG_MODEL="${CLEARML_LOG_MODEL:-FALSE}"
 )
 
-if [[ "${RUN_AS_ROOT:-0}" != "1" ]]; then
+if [[ "${RUN_AS_USER:-0}" == "1" ]]; then
   args+=(--user "$(id -u):$(id -g)")
-  # Таблицы пользователей хоста — чтобы uid резолвился в имя: иначе bash пишет
-  # "I have no name!", groups ругается, а getpwuid() кидает KeyError.
+  # getpass.getuser() читает эти переменные раньше /etc/passwd. Без них торчащий
+  # наружу uid не резолвится в имя, и torch._inductor падает с KeyError ещё на
+  # импорте.
+  args+=(-e USER="$(id -un)" -e LOGNAME="$(id -un)")
+  # Таблицы пользователей хоста — чтобы имя резолвилось и в тех местах, что
+  # лезут в /etc/passwd напрямую (приглашение bash, groups).
   if grep -q "^[^:]*:[^:]*:$(id -u):" /etc/passwd 2>/dev/null; then
     args+=(-v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro)
   fi

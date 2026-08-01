@@ -33,15 +33,35 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 --tee 3 \
 
 | | |
 |---|---|
-| `--user $(id -u):$(id -g)` | чекпоинты и логи в `/workspace` принадлежат хостовому пользователю, а не root. Отключается через `RUN_AS_ROOT=1` |
-| `HOME=/container-home` | у подменённого uid нет записи в `/etc/passwd`, docker выставил бы `HOME=/`. Каталог `.container-home/` в корне репозитория (в `.gitignore`), переживает перезапуски |
-| `HF_HOME=/hf-cache` | сюда монтируется `~/.cache/huggingface` с хоста: `/root/.cache` под non-root недоступен |
+| `HOME=/container-home` | каталог `.container-home/` в корне репозитория (в `.gitignore`): переживает перезапуски, держит кэши ClearML и triton |
+| `HF_HOME=/hf-cache` | сюда монтируется `~/.cache/huggingface` с хоста |
+| `TORCHINDUCTOR_CACHE_DIR`, `TRITON_CACHE_DIR` | кэш компиляции в `/container-home`, иначе он в `/tmp` и пропадает с контейнером |
 | `PATH` с `/opt/venv/bin` | `python` и `torchrun` работают без полного пути |
 | `-v "$PWD":/workspace` | датасеты в `data/` уже внутри, отдельный `-v` для них не нужен |
 
 Секреты (`HF_TOKEN`, `CLEARML_API_*`) пробрасываются, только если заданы в
 окружении хоста. Переопределяемые переменные: `IMAGE`, `GPUS`, `SHM_SIZE`,
 `HF_CACHE`, `CLEARML_PROJECT`, `CLEARML_TASK`, `CUDA_VISIBLE_DEVICES`.
+
+### От кого работает контейнер
+
+По умолчанию от root — запуски делает один человек, и root-овы файлы в
+`sft-output/` и кэше HF ему не мешают.
+
+`RUN_AS_USER=1 ./run.sh` запускает от uid/gid хоста, чтобы чекпоинты
+принадлежали текущему пользователю. Нужно, только если к результатам ходит
+кто-то ещё.
+
+Режимы не стоит смешивать. Root оставляет в `~/.cache/huggingface` файлы и
+lock-и, которые обычный uid потом не перезапишет — запуск падает на
+`PermissionError` в `hub/.locks/...` либо на невнятном `Can't load tokenizer`.
+Если так вышло, права чинятся из root-контейнера (хостовый `sudo` не нужен,
+`/hf-cache` — тот же каталог на хосте):
+
+```bash
+./run.sh                       # root по умолчанию
+chown -R <uid>:<gid> /hf-cache
+```
 
 Аргументы `./run.sh` уходят командой в контейнер, без них — `bash`:
 
