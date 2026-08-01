@@ -49,6 +49,7 @@ SHARED_PARAMS = {
     "lr_scheduler_type": "cosine",
     "seed": 42,
     "logging_steps": 10,
+    "logging_first_step": True,
     "eval_strategy": "steps",
     "eval_steps": 0.3,
     "save_strategy": "steps",

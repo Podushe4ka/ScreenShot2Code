@@ -17,6 +17,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+ENV_FILE="${ENV_FILE:-.env}"
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+  echo "[run] загружен $ENV_FILE"
+fi
+
 IMAGE="${IMAGE:-sft}"
 GPUS="${GPUS:-all}"
 SHM_SIZE="${SHM_SIZE:-16g}"
@@ -64,7 +73,8 @@ if [[ "${RUN_AS_USER:-0}" == "1" ]]; then
   fi
 fi
 
-for var in HF_TOKEN CLEARML_API_ACCESS_KEY CLEARML_API_SECRET_KEY CUDA_VISIBLE_DEVICES; do
+for var in HF_TOKEN CLEARML_API_ACCESS_KEY CLEARML_API_SECRET_KEY \
+           CLEARML_WEB_HOST CLEARML_FILES_HOST CUDA_VISIBLE_DEVICES; do
   if [[ -n "${!var:-}" ]]; then
     args+=(-e "$var=${!var}")
   fi
