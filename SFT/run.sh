@@ -22,7 +22,7 @@ GPUS="${GPUS:-all}"
 SHM_SIZE="${SHM_SIZE:-16g}"
 
 CONTAINER_HOME="${CONTAINER_HOME:-$PWD/.container-home}"
-mkdir -p "$CONTAINER_HOME"
+mkdir -p "$CONTAINER_HOME" "$CONTAINER_HOME/tmp"
 
 HF_CACHE="${HF_CACHE:-$HOME/.cache/huggingface}"
 mkdir -p "$HF_CACHE"
@@ -45,6 +45,7 @@ args=(
   -w /workspace
   -e HOME=/container-home
   -e HF_HOME=/hf-cache
+  -e TMPDIR=/container-home/tmp
   -e TORCHINDUCTOR_CACHE_DIR=/container-home/torchinductor
   -e TRITON_CACHE_DIR=/container-home/triton
   -e PATH=/opt/venv/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
