@@ -166,6 +166,44 @@ teacher-таргеты чище шумного WebCode2M и ближе к том
 
 ---
 
+## 10. ClearML: конвенция трекинга
+
+**Обучение** уже трекается на ветке `sft` (`enable_clearml_if_configured` в
+`train_sft.py`): если в окружении есть `CLEARML_API_ACCESS_KEY`/`_SECRET_KEY` →
+`report_to=["clearml"]`, задачу создаёт авто-callback `transformers` по
+`CLEARML_PROJECT`/`CLEARML_TASK` (Docker/`run.sh` это уже пробрасывает). Ветка
+`feat/clearml-tracking` добавляет поверх: **обогащение** этой задачи тегами/
+hparams/meta (`ClearMLEnrichCallback`) и **трекинг бенча** (`Evaluation/tracking.py`).
+Всё опционально и безопасно — no-op без кред или при `CLEARML_DISABLE=1`.
+
+**Два вида задач** (разделены намеренно):
+
+| Задача | Project / name | Что логирует | Где сравнивать |
+|---|---|---|---|
+| Обучение (`train_sft`) | `CLEARML_PROJECT` / `CLEARML_TASK` | loss / eval_loss / token_acc (авто-callback) + теги, hparams (оси A–H), `meta` (enrich) | кривые сходимости |
+| Прогон бенча (`run_benchmark`) | `ScreenShot2Code/Bench` / `bench:<модель\|чекпоинт>` | `final_score` + подметрики, `n_length_truncated`, разбивка `status`/`finish_reason` | **сетап × final_score** (главная таблица) |
+
+Правило «один сетап = одна строка» из §8 — это одна **бенч-задача** в UI.
+
+**Как S-ID / оси ложатся на поля:**
+
+- **Имя задачи** обучения — `CLEARML_TASK` (напр. `qwen3_5_4b_full_ft`); `run_name`
+  с seed/временем при этом логируется в `meta` (из `run_info.py`).
+- **Теги** (по ним фильтр и Compare) навешиваются автоматически: датасет
+  (`WebCode2M-hf`), `lora`/`full-ft`, пиксель-бюджет (`px2.10Mp` — ось A),
+  `bench`/`SFT`. S-ID (`S5`…) и приоритет (`P0`) — через `CLEARML_TAGS=S5,P0`.
+- **hparams** обучения — плоский срез ровно по осям свипа: `lr, epochs, max_length,
+  max_pixels, lora, dataset, grad_accum, seed`. Именно их кладёшь в *Compare*.
+
+**Рабочий цикл спринта:** зафиксировать baseline-задачу (Фаза 1) → каждый S-сетап
+форкать по одной оси → в UI *Compare* по тегу датасета/бюджета → что бьёт baseline
+помечать тегом `keep`, остальное `drop` → из `keep` собирается рецепт (§5).
+
+Управление: `CLEARML_DISABLE=1` — выключить бенч-трекинг; `CLEARML_TAGS=...` — доп.
+теги; `CLEARML_PROJECT`/`CLEARML_TASK` — проект и имя задачи обучения.
+
+---
+
 ## 9. Открытые вопросы (закрыть к старту Фазы 2)
 
 - [ ] **Починить `compare.py`** (min/max_pixels) и/или прогнать фикс-бенч → **первая чистая цифра**.

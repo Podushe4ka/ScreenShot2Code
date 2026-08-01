@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 
 from datasets.utils.logging import disable_progress_bar
@@ -22,6 +23,7 @@ from train.formatting import (
     visual_token_budget,
 )
 from train.run_info import format_meta, git_commit, make_run_name, save_run_info
+from train.tracking import ClearMLEnrichCallback
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +168,28 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
         peft_config=peft_config,
         processing_class=processor,
     )
+    # Обогащаем ClearML-задачу (её создаёт авто-callback при report_to=clearml)
+    # нашими тегами/hparams/meta. Добавляем ПОСЛЕ штатных колбэков, чтобы на
+    # on_train_begin задача уже существовала. No-op, если clearml выключен.
+    trainer.add_callback(ClearMLEnrichCallback(meta, training_args, model_args))
     return trainer
+
+
+def enable_clearml_if_configured(training_args) -> None:
+    """Включить ClearML, если в окружении лежат креды (иначе — не трогаем).
+
+    Задачу дальше создаёт авто-callback transformers по CLEARML_PROJECT/
+    CLEARML_TASK; теги/hparams досыпает ClearMLEnrichCallback. Не перетираем
+    report_to, если он уже задан конфигом.
+    """
+    if not os.getenv("CLEARML_API_ACCESS_KEY"):
+        return
+    if training_args.report_to not in ([], ["none"], "none", None):
+        return
+    training_args.report_to = ["clearml"]
+    os.environ.setdefault("CLEARML_LOG_MODEL", "FALSE")
+    if training_args.should_log:
+        print("ClearML: найдены креды в окружении, логирование включено")
 
 
 def main(argv=None):
@@ -175,6 +198,7 @@ def main(argv=None):
     # он игнорируется, если хендлеры root-логгера уже созданы.
     parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
     script_args, training_args, model_args = parser.parse_args_and_config(args=argv)
+    enable_clearml_if_configured(training_args)
     trainer = build_trainer(script_args, training_args, model_args)
     trainer.train()
     trainer.save_model(training_args.output_dir)

@@ -167,6 +167,10 @@ def main():
 
     sys.path.insert(0, str(Path(__file__).parent))
     from render import prepare_and_render
+    from tracking import start_benchmark_task, log_benchmark_results
+
+    # ClearML: одна задача на прогон бенча (сетап × final_score). No-op без clearml.
+    cml_task = start_benchmark_task(args)
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -277,6 +281,9 @@ def main():
     if len(ok_df) > 0:
         print(ok_df[["block_match", "text", "position", "color", "clip", "final_score", "final_score_arithmetic"]].mean().to_string())
     print(f"\nРезультаты: {results_path}")
+
+    # Агрегаты прогона в ClearML (final_score + подметрики + разбивка статусов).
+    log_benchmark_results(cml_task, df, results_path)
 
 
 if __name__ == "__main__":
