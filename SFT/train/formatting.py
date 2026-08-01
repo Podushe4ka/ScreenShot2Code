@@ -41,7 +41,7 @@ EDITING_SUFFIX = (
 )
 
 MIN_PIXELS = 262_144
-MAX_PIXELS = 1_310_720
+MAX_PIXELS = 2_097_152
 
 RESPONSE_TEMPLATE = "<|im_start|>assistant\n"
 TURN_END = "<|im_end|>"
@@ -53,11 +53,6 @@ _MAX_WHITESPACE_SKIP = 4
 def visual_token_budget(processor) -> int:
     """
     Верхняя оценка числа визуальных токенов на одну картинку.
-
-    Именно оценка сверху: smart_resize округляет стороны вниз до кратного
-    factor, поэтому фактическое число на несколько процентов меньше (1280x1280
-    при потолке 1.31 Мп -> 35x35 = 1225 токенов). Для фильтрации по бюджету
-    ошибка в эту сторону безопасна.
     """
     ip = processor.image_processor
     factor = ip.patch_size * ip.merge_size
@@ -129,13 +124,8 @@ def to_message(example):
 
 
 def add_messages(dataset):
-    """Разложить сэмплы в messages, не притрагиваясь к колонке images.
-
-    `to_message` читает только текстовые поля, но `map` материализует все
-    колонки: картинки декодировались бы в PIL и кодировались обратно в PNG на
-    каждой строке. Поэтому messages считаются по проекции без картинок, а
-    результат приклеивается колонкой — `concatenate_datasets(axis=1)` делает
-    это на диске, в отличие от `add_column`, которому нужен весь HTML в памяти.
+    """
+    Раскладывает сэмплы в messages, не притрагиваясь к колонке images.
     """
     text_columns = [name for name in dataset.column_names if name != "images"]
     messages = dataset.select_columns(text_columns).map(
@@ -162,7 +152,7 @@ def _assistant_spans(
     think_end_ids: list[int],
 ) -> list[tuple[int, int]]:
     """
-    Интервалы [start, end) ответов ассистента — то, что попадает в лосс.
+    Интервалы [start, end) в лосс.
     """
     spans: list[tuple[int, int]] = []
     pos = 0

@@ -23,8 +23,6 @@ SHM_SIZE="${SHM_SIZE:-16g}"
 CONTAINER_HOME="${CONTAINER_HOME:-$PWD/.container-home}"
 mkdir -p "$CONTAINER_HOME"
 
-# Кэш HF с хоста. Под non-root /root/.cache недоступен, поэтому монтируем в
-# отдельную точку и указываем на неё через HF_HOME.
 HF_CACHE="${HF_CACHE:-$HOME/.cache/huggingface}"
 mkdir -p "$HF_CACHE"
 
@@ -38,12 +36,8 @@ args=(
   -w /workspace
   -e HOME=/container-home
   -e HF_HOME=/hf-cache
-  # Иначе torch кладёт их в /tmp/torchinductor_<username> — пропадает между
-  # запусками, а в общем /tmp можно налететь на чужой каталог с тем же именем.
   -e TORCHINDUCTOR_CACHE_DIR=/container-home/torchinductor
   -e TRITON_CACHE_DIR=/container-home/triton
-  # /opt/venv в PATH, чтобы работали python/torchrun без полного пути.
-  # Остальное — PATH базового образа nvidia/cuda (нужен nvcc).
   -e PATH=/opt/venv/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   -e PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
   -e CLEARML_API_HOST="${CLEARML_API_HOST:-https://api.clear.ml}"
@@ -54,26 +48,18 @@ args=(
 
 if [[ "${RUN_AS_USER:-0}" == "1" ]]; then
   args+=(--user "$(id -u):$(id -g)")
-  # getpass.getuser() читает эти переменные раньше /etc/passwd. Без них торчащий
-  # наружу uid не резолвится в имя, и torch._inductor падает с KeyError ещё на
-  # импорте.
   args+=(-e USER="$(id -un)" -e LOGNAME="$(id -un)")
-  # Таблицы пользователей хоста — чтобы имя резолвилось и в тех местах, что
-  # лезут в /etc/passwd напрямую (приглашение bash, groups).
   if grep -q "^[^:]*:[^:]*:$(id -u):" /etc/passwd 2>/dev/null; then
     args+=(-v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro)
   fi
 fi
 
-# Секреты пробрасываем только если заданы, иначе внутри окажется пустая
-# переменная, которая ломает автологин HF/ClearML вместо fallback на конфиг.
 for var in HF_TOKEN CLEARML_API_ACCESS_KEY CLEARML_API_SECRET_KEY CUDA_VISIBLE_DEVICES; do
   if [[ -n "${!var:-}" ]]; then
     args+=(-e "$var=${!var}")
   fi
 done
 
-# -t только при реальном терминале, иначе ./run.sh не запустить из скрипта/CI.
 if [[ -t 0 && -t 1 ]]; then
   args+=(-it)
 else
