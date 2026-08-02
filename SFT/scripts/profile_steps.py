@@ -63,11 +63,13 @@ class ProfileCallback(TrainerCallback):
             self.prof = None
             return
 
-        table = self.prof.key_averages().table(
-            sort_by="self_cuda_time_total", row_limit=TOP_N
-        )
-        print("\n================ топ ядер по self CUDA time ================")
-        print(table)
+        stats = self.prof.key_averages()
+        print("\n================ топ по self CUDA time ================")
+        print(stats.table(sort_by="self_cuda_time_total", row_limit=TOP_N))
+        # Узкое место — процессор (CPU-время вдвое больше GPU), а в сортировке по
+        # CUDA операции, жрущие CPU и почти не трогающие карту, в топ не попадают.
+        print("\n================ топ по self CPU time ================")
+        print(stats.table(sort_by="self_cpu_time_total", row_limit=TOP_N))
 
         if self.trace_path:
             self.prof.export_chrome_trace(self.trace_path)

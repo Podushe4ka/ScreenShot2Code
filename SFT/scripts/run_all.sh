@@ -115,8 +115,9 @@ else
   say "  профиль не собрался, см. profile.txt"
 fi
 if grep -q "self CUDA time" "$RESULT_DIR/profile.txt" 2>/dev/null; then
-  say "  топ ядер:"
+  say "  топ ядер (CUDA и CPU) — полностью в profile.txt"
   sed -n '/self CUDA time/,$p' "$RESULT_DIR/profile.txt" | head -18 >> "$REPORT"
+  sed -n '/self CPU time/,$p' "$RESULT_DIR/profile.txt" | head -18 >> "$REPORT"
 fi
 rule
 
