@@ -135,6 +135,24 @@ STEPS=4 run_one tokenbatch \
 STEPS=4 run_one tokenbatch_nobucket \
   --max_tokens_per_batch 65536 --gradient_accumulation_steps 5 --length_bucket 0
 
+# ---- torch.compile: единственный рычаг против дробления на мелкие ядра -------
+# 133 тыс. запусков ядер на шаг, очередь команд забита, ~5 синхронизаций на вызов
+# fla. compile сливает цепочки мелких операций в одно ядро.
+# Прошлый OOM был при bs=4 — пробуем с меньшим микробатчем.
+run_one compile_bs2 --per_device_train_batch_size 2 --gradient_accumulation_steps 4 \
+  --torch_compile true
+
+# reduce-overhead включает CUDA-графы: они убирают именно накладные расходы на
+# запуск ядер. Но графы требуют стабильных форм тензоров.
+run_one compile_graphs --per_device_train_batch_size 2 --gradient_accumulation_steps 4 \
+  --torch_compile true --torch_compile_mode reduce-overhead
+
+# Формы стабилизируем округлением длин до корзины — то, ради чего писался
+# length_bucket. По скорости он ничего не дал, но графам он нужен.
+STEPS=4 run_one compile_graphs_bucket \
+  --max_tokens_per_batch 32768 --gradient_accumulation_steps 10 --length_bucket 2048 \
+  --torch_compile true --torch_compile_mode reduce-overhead
+
 echo
 echo "[matrix] готово. Сводка:"
 echo "    /opt/venv/bin/python -m scripts.throughput_report $OUT"
