@@ -62,9 +62,9 @@ run_one() {
     return 0
   fi
   echo "=============================================================="
-  echo "[matrix] $name  |  $*"
+  echo "[matrix] $name  |  ${RUN_ENV:+[$RUN_ENV] }$*"
   local t0=$SECONDS
-  /opt/venv/bin/torchrun --nproc_per_node="$NPROC" --tee 3 \
+  env ${RUN_ENV:-} /opt/venv/bin/torchrun --nproc_per_node="$NPROC" --tee 3 \
     -m scripts.throughput_run \
     --config "$CONFIG" \
     --dataset_name "$DATASET" \
@@ -87,6 +87,11 @@ run_one() {
   fi
   free_gpus
 }
+
+# ---- прогрев: первый эксперимент оплачивает компиляцию ядер fla за всех ------
+# (кэши Triton разнесены по рангам, так что компилируют оба). Имя с подчёркивания
+# — throughput_report такие не показывает.
+run_one _warmup --per_device_train_batch_size 4 --gradient_accumulation_steps 1
 
 # ---- база и реализация внимания ---------------------------------------------
 run_one base        --per_device_train_batch_size 4 --gradient_accumulation_steps 2
@@ -116,6 +121,11 @@ run_one compile --per_device_train_batch_size 4 --gradient_accumulation_steps 2 
 # шаг вчетверо длиннее, поэтому меньше шагов).
 run_one accum1 --per_device_train_batch_size 4 --gradient_accumulation_steps 1
 STEPS=4 run_one accum8 --per_device_train_batch_size 4 --gradient_accumulation_steps 8
+
+# ---- загрузка CUDA-модулей: профиль показал 230 с на Lazy Function Loading ----
+# EAGER грузит ядра заранее. Сравнивать строго с accum8 — та же конфигурация.
+STEPS=4 RUN_ENV="CUDA_MODULE_LOADING=EAGER" run_one modules_eager \
+  --per_device_train_batch_size 4 --gradient_accumulation_steps 8
 
 echo
 echo "[matrix] готово. Сводка:"

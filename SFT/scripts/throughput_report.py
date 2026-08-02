@@ -87,7 +87,8 @@ def summarize(path: Path, skip: int) -> dict:
 def main(argv=None):
     args = parse_args(argv)
     logdir = Path(args.logdir)
-    logs = sorted(logdir.glob("*.log"))
+    # с подчёркивания начинаются служебные прогоны (прогрев) — не показываем
+    logs = sorted(p for p in logdir.glob("*.log") if not p.stem.startswith("_"))
     if not logs:
         raise SystemExit(f"в {logdir} нет .log файлов")
 
