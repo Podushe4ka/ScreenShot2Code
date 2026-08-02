@@ -38,6 +38,21 @@ def make_run_name(training_args) -> str:
     return f"{base}_s{training_args.seed}_{time.strftime('%Y%m%d-%H%M%S')}"
 
 
+def isolate_compile_caches() -> None:
+    """Свой каталог кэша компиляции на ранг.
+
+    Ранги компилируют одни и те же ядра fla одновременно; при общем каталоге
+    один читает чужой недописанный .ptx/.cubin и падает с FileNotFoundError.
+    """
+    rank = os.environ.get("LOCAL_RANK", "0")
+    for var in ("TRITON_CACHE_DIR", "TORCHINDUCTOR_CACHE_DIR"):
+        base = os.environ.get(var)
+        if base:
+            path = Path(base) / f"rank{rank}"
+            path.mkdir(parents=True, exist_ok=True)
+            os.environ[var] = str(path)
+
+
 def setup_logging(training_args) -> None:
     """INFO для своего кода, WARNING для библиотек, шум — только с rank 0.
 
@@ -82,6 +97,7 @@ def _prepare_split(script_args, training_args, processor, split, required):
 def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
     set_seed(training_args.seed)
     setup_logging(training_args)
+    isolate_compile_caches()
 
     say = print if training_args.should_log else lambda *a, **k: None
 

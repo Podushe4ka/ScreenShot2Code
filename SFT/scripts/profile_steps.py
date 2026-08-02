@@ -8,6 +8,8 @@
         --config configs/full_ft_qwen3_5_4b.yaml --dataset_name /data/webcode2m_1000_split
 """
 
+import os
+
 import torch
 from torch.profiler import ProfilerActivity, profile, schedule
 from transformers import TrainerCallback
@@ -74,18 +76,11 @@ class ProfileCallback(TrainerCallback):
 
 def main(argv=None):
     parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
-    parser.add_argument("--trace-path", default=None,
-                        help="куда выгрузить chrome trace (по умолчанию не выгружать)")
-    script_args, training_args, model_args, extra = parser.parse_args_and_config(
-        args=argv, return_remaining_strings=True
-    )
+    script_args, training_args, model_args = parser.parse_args_and_config(args=argv)
 
-    trace_path = None
-    for i, tok in enumerate(extra):
-        if tok == "--trace-path" and i + 1 < len(extra):
-            trace_path = extra[i + 1]
-        elif tok.startswith("--trace-path="):
-            trace_path = tok.split("=", 1)[1]
+    # chrome trace — через переменную окружения, чтобы не смешивать свои
+    # аргументы с дataclass-полями TrlParser
+    trace_path = os.environ.get("TRACE_PATH") or None
 
     if training_args.max_steps < 0 or training_args.max_steps > 10:
         training_args.max_steps = WAIT + WARMUP + ACTIVE + 1
