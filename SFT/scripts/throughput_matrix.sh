@@ -135,6 +135,16 @@ STEPS=4 run_one tokenbatch \
 STEPS=4 run_one tokenbatch_nobucket \
   --max_tokens_per_batch 65536 --gradient_accumulation_steps 5 --length_bucket 0
 
+# ---- буферы DeepSpeed --------------------------------------------------------
+# Снапшот памяти показал всплеск 12.7 ГиБ внутри step(): all-gather собирает
+# полный набор весов в плоский буфер (8.46 ГиБ = 4.539 млрд x 2 Б) плюс шард
+# (4.23 ГиБ). Меньшие бакеты режут это на куски ценой лишних раундов обмена.
+run_one smallbucket --per_device_train_batch_size 4 --gradient_accumulation_steps 2 \
+  --deepspeed configs/deepspeed_zero2_smallbucket.json
+STEPS=4 run_one smallbucket_compile \
+  --per_device_train_batch_size 2 --gradient_accumulation_steps 4 \
+  --deepspeed configs/deepspeed_zero2_smallbucket.json --torch_compile true
+
 # ---- torch.compile: единственный рычаг против дробления на мелкие ядра -------
 # 133 тыс. запусков ядер на шаг, очередь команд забита, ~5 синхронизаций на вызов
 # fla. compile сливает цепочки мелких операций в одно ядро.
