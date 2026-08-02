@@ -68,7 +68,11 @@ rule
 # --- 2. стабильность: один прогон, при падении — обход без воркеров ------------
 say "шаг 2: проверка стабильности (эксперимент base)"
 EXTRA_ARGS=""
-matrix "$RESULT_DIR/stability.txt" ONLY=base
+if measured "$LOGS/base.log"; then
+  say "  base уже замерен в этом каталоге, проверку пропускаю"
+else
+  matrix "$RESULT_DIR/stability.txt" ONLY=base
+fi
 
 if measured "$LOGS/base.log"; then
   say "  базовый прогон прошёл"
