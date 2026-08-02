@@ -7,8 +7,6 @@ remove_unused_columns: false
 dataset_train_split: train
 dataset_test_split: validation
 dataloader_num_workers: 8
-dataloader_persistent_workers: true
-dataloader_prefetch_factor: 4
 train_sampling_strategy: group_by_length
 tf32: true
 num_train_epochs: 1

@@ -35,3 +35,8 @@ data/websight1k/
 .idea/
 
 .container-home/
+
+throughput-logs/
+experiments-*/
+run_all.out
+matrix-progress.txt

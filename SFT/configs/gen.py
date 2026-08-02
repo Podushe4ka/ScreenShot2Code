@@ -41,8 +41,6 @@ SHARED_PARAMS = {
     "dataset_train_split": "train",
     "dataset_test_split": "validation",
     "dataloader_num_workers": 8,
-    "dataloader_persistent_workers": True,
-    "dataloader_prefetch_factor": 4,
     "train_sampling_strategy": "group_by_length",
     "tf32": True,
     "num_train_epochs": 1,
