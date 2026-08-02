@@ -15,6 +15,7 @@ from torch.profiler import ProfilerActivity, profile, schedule
 from transformers import TrainerCallback
 from trl import ModelConfig, ScriptArguments, SFTConfig, TrlParser
 
+from train.batching import BatchingArguments
 from train.train_sft import build_trainer
 
 WAIT, WARMUP, ACTIVE = 1, 1, 2
@@ -75,8 +76,10 @@ class ProfileCallback(TrainerCallback):
 
 
 def main(argv=None):
-    parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
-    script_args, training_args, model_args = parser.parse_args_and_config(args=argv)
+    parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig, BatchingArguments))
+    script_args, training_args, model_args, batching_args = (
+        parser.parse_args_and_config(args=argv)
+    )
 
     # chrome trace — через переменную окружения, чтобы не смешивать свои
     # аргументы с дataclass-полями TrlParser
@@ -88,7 +91,7 @@ def main(argv=None):
     training_args.eval_strategy = "no"
     training_args.logging_steps = 1
 
-    trainer = build_trainer(script_args, training_args, model_args)
+    trainer = build_trainer(script_args, training_args, model_args, batching_args)
     trainer.add_callback(ProfileCallback(trace_path))
     trainer.train()
 
