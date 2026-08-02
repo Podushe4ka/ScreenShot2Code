@@ -45,6 +45,11 @@ mkdir -p "$CONTAINER_HOME" "$CONTAINER_HOME/tmp"
 HF_CACHE="${HF_CACHE:-$HOME/.cache/huggingface}"
 mkdir -p "$HF_CACHE"
 
+OUT_DIR="${OUT_DIR:-}"
+if [[ -n "$OUT_DIR" ]]; then
+  mkdir -p "$OUT_DIR"
+fi
+
 DATA_DIR="${DATA_DIR:-/mnt/storage-1/data}"
 if [[ ! -d "$DATA_DIR" ]]; then
   echo "ОШИБКА: каталога с данными нет: $DATA_DIR" >&2
@@ -61,6 +66,13 @@ args=(
   -v "$HF_CACHE":/hf-cache
   -v "$DATA_DIR":/data
   -w "$WORKDIR"
+)
+
+if [[ -n "$OUT_DIR" ]]; then
+  args+=(-v "$OUT_DIR":/out)
+fi
+
+args+=(
   -e HOME=/container-home
   -e HF_HOME=/hf-cache
   -e TMPDIR=/container-home/tmp

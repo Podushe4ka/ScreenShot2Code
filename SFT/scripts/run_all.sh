@@ -12,7 +12,12 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-RESULT_DIR="${RESULT_DIR:-experiments-$(date +%Y%m%d-%H%M%S)}"
+if [[ -z "${RESULT_DIR:-}" ]]; then
+  # /out — смонтированный с хоста просторный диск (OUT_DIR в run.sh).
+  # Без него пишем рядом с репозиторием, но там легко упереться в место.
+  BASE=$([[ -d /out ]] && echo /out || echo .)
+  RESULT_DIR="$BASE/experiments-$(date +%Y%m%d-%H%M%S)"
+fi
 DATASET="${DATASET:-/data/webcode2m_1000_split}"
 CONFIG="${CONFIG:-configs/full_ft_qwen3_5_4b.yaml}"
 NPROC="${NPROC:-2}"
