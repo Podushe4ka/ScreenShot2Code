@@ -21,6 +21,10 @@ N_GPUS = 2
 
 TARGET_EFF_BATCH = 64
 
+TOKEN_BATCHING = False
+
+TARGET_EFF_TOKENS = 750_000
+
 CODE_BUDGET_TOKENS = 14176
 
 PROMPT_OVERHEAD_TOKENS = 160
@@ -118,6 +122,27 @@ def _accum(microbatch: int) -> int:
     return max(1, TARGET_EFF_BATCH // (microbatch * N_GPUS))
 
 
+def _accum_tokens(max_tokens_per_batch: int) -> int:
+    return max(1, TARGET_EFF_TOKENS // (max_tokens_per_batch * N_GPUS))
+
+
+def _token_batching(bs: int, m: dict) -> dict:
+    """Ключи батчинга по токенам. Пусто, пока TOKEN_BATCHING выключен.
+
+    Бюджет равен нынешнему потолку памяти bs * max_length, поэтому переход не
+    меняет требований к VRAM. per_device_train_batch_size остаётся в конфиге:
+    из него DeepSpeed заполняет train_micro_batch_size_per_gpu, данные он не
+    режет, так что значение становится косметически неверным, но безвредным.
+    """
+    if not TOKEN_BATCHING:
+        return {}
+    budget = bs * max_length_for(m)
+    return {
+        "max_tokens_per_batch": budget,
+        "gradient_accumulation_steps": _accum_tokens(budget),
+    }
+
+
 def visual_tokens(factor: int) -> int:
     """Визуальные токены на картинку при бюджете MAX_PIXELS."""
     return math.ceil(MAX_PIXELS / factor**2)
@@ -153,6 +178,7 @@ def lora_cfg(name: str, m: dict) -> dict:
         "lora_alpha": 32,
         "lora_dropout": 0.05,
         "lora_target_modules": TARGET_MODULES,
+        **_token_batching(bs, m),
     }
 
 
@@ -173,6 +199,7 @@ def full_cfg(name: str, m: dict) -> dict:
         "learning_rate": lr,
         "weight_decay": 0.05,
         "deepspeed": DEEPSPEED[m["full_zero"]],
+        **_token_batching(bs, m),
     }
 
 

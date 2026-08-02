@@ -17,6 +17,13 @@ from trl import (
 
 from data.filtering import filter_by_length
 from data.loader import load_sft_dataset
+from train.batching import (
+    BatchingArguments,
+    TokenBudgetBatchSampler,
+    TokenBudgetSFTTrainer,
+    batch_plan_report,
+    plan_token_batches,
+)
 from train.formatting import (
     MAX_PIXELS,
     MIN_PIXELS,
@@ -94,7 +101,43 @@ def _prepare_split(script_args, training_args, processor, split, required):
     return dataset, report
 
 
-def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
+def _setup_token_batching(training_args, batching_args, train_dataset, say):
+    """Разложить датасет по батчам с бюджетом токенов. Возвращает сэмплер."""
+    budget = batching_args.max_tokens_per_batch
+    if training_args.length_column_name not in train_dataset.column_names:
+        raise ValueError(
+            f"max_tokens_per_batch={budget} требует колонку "
+            f"'{training_args.length_column_name}', а её нет: задайте max_length, "
+            "иначе длины не измерены и разложить по бюджету не по чему."
+        )
+    if training_args.max_length and budget < training_args.max_length:
+        raise ValueError(
+            f"max_tokens_per_batch={budget} меньше max_length="
+            f"{training_args.max_length}: самый длинный пример не влезет даже "
+            "в батч из одного."
+        )
+
+    lengths = list(train_dataset[training_args.length_column_name])
+    batches = plan_token_batches(
+        lengths,
+        max_tokens=budget,
+        max_batch_size=batching_args.max_batch_size,
+        bucket=batching_args.length_bucket,
+    )
+    say(batch_plan_report(batches, lengths, budget, batching_args.length_bucket))
+
+    # BatchSamplerShard при even_batches=True рассчитан на постоянный размер
+    # батча и добивает их число дублями с начала датасета. У нас размер плавает.
+    if getattr(training_args.accelerator_config, "even_batches", False):
+        training_args.accelerator_config.even_batches = False
+        say("accelerator_config.even_batches выключен: батчи переменного размера")
+
+    return TokenBudgetBatchSampler(batches, seed=training_args.seed)
+
+
+def build_trainer(
+    script_args, training_args, model_args, batching_args=None
+) -> SFTTrainer:
     set_seed(training_args.seed)
     setup_logging(training_args)
     isolate_compile_caches()
@@ -169,7 +212,15 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
 
     say(f"meta: {json.dumps(meta, ensure_ascii=False, sort_keys=True)}")
 
-    collate_fn = make_collate_fn(processor)
+    batch_sampler = None
+    pad_to = None
+    if batching_args is not None and batching_args.max_tokens_per_batch:
+        batch_sampler = _setup_token_batching(
+            training_args, batching_args, train_dataset, say
+        )
+        pad_to = batching_args.length_bucket or None
+
+    collate_fn = make_collate_fn(processor, pad_to_multiple_of=pad_to)
 
     model = AutoModelForImageTextToText.from_pretrained(
         model_args.model_name_or_path,
@@ -178,15 +229,25 @@ def build_trainer(script_args, training_args, model_args) -> SFTTrainer:
         attn_implementation=model_args.attn_implementation,
     )
 
-    trainer = SFTTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        data_collator=collate_fn,
-        peft_config=peft_config,
-        processing_class=processor,
-    )
+    common = {
+        "model": model,
+        "args": training_args,
+        "train_dataset": train_dataset,
+        "eval_dataset": eval_dataset,
+        "data_collator": collate_fn,
+        "peft_config": peft_config,
+        "processing_class": processor,
+    }
+    if batch_sampler is None:
+        return SFTTrainer(**common)
+
+    trainer = TokenBudgetSFTTrainer(batch_sampler=batch_sampler, **common)
+    if not getattr(trainer, "model_accepts_loss_kwargs", False):
+        logger.warning(
+            "model_accepts_loss_kwargs=False: лосс будет нормироваться на число "
+            "микробатчей, а не на число токенов. При плавающем размере батча это "
+            "перекосит градиент в пользу мелких батчей."
+        )
     return trainer
 
 
@@ -205,10 +266,12 @@ def enable_clearml_if_configured(training_args):
 
 
 def main(argv=None):
-    parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
-    script_args, training_args, model_args = parser.parse_args_and_config(args=argv)
+    parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig, BatchingArguments))
+    script_args, training_args, model_args, batching_args = (
+        parser.parse_args_and_config(args=argv)
+    )
     enable_clearml_if_configured(training_args)
-    trainer = build_trainer(script_args, training_args, model_args)
+    trainer = build_trainer(script_args, training_args, model_args, batching_args)
     trainer.train()
     trainer.save_model(training_args.output_dir)
 

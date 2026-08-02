@@ -81,6 +81,7 @@ args+=(
   -e PATH=/opt/venv/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   -e PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
   -e PYTHONFAULTHANDLER=1
+  -e CUDA_MODULE_LOADING="${CUDA_MODULE_LOADING:-EAGER}"
   -e CLEARML_API_HOST="${CLEARML_API_HOST:-https://api.clear.ml}"
   -e CLEARML_PROJECT="${CLEARML_PROJECT:-Screenshot2Code}"
   -e CLEARML_LOG_MODEL="${CLEARML_LOG_MODEL:-FALSE}"

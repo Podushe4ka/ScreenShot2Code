@@ -196,9 +196,14 @@ def _assistant_spans(
     return spans
 
 
-def make_collate_fn(processor):
+def make_collate_fn(processor, pad_to_multiple_of: int | None = None):
     """
     Коллатор с маскированием лосса по ходам ассистента.
+
+    `pad_to_multiple_of` округляет длину батча вверх. Профиль показал 272
+    загрузки CUDA-ядер посреди прогона: `fla` компилирует своё ядро под каждую
+    новую форму, а при паддинге до максимума в батче формы почти не повторяются.
+    Округление до корзины сводит их к десятку.
     """
     tokenizer = processor.tokenizer
     image_token_id = tokenizer.convert_tokens_to_ids("<|image_pad|>")
@@ -220,12 +225,16 @@ def make_collate_fn(processor):
             for ex in examples
         ]
         images = [ex["images"] for ex in examples]
+        pad_kwargs = {}
+        if pad_to_multiple_of:
+            pad_kwargs["pad_to_multiple_of"] = pad_to_multiple_of
         batch = processor(
             text=texts,
             images=images,
             return_tensors="pt",
             padding=True,
             add_special_tokens=False,
+            **pad_kwargs,
         )
 
         input_ids = batch["input_ids"]

@@ -127,6 +127,14 @@ STEPS=4 run_one accum8 --per_device_train_batch_size 4 --gradient_accumulation_s
 STEPS=4 RUN_ENV="CUDA_MODULE_LOADING=EAGER" run_one modules_eager \
   --per_device_train_batch_size 4 --gradient_accumulation_steps 8
 
+# ---- батчинг по бюджету токенов ----------------------------------------------
+# Бюджет 65536 = нынешний потолок bs4 x 16384, accum 5 -> ~655k токенов на шаг
+# против ~750k у accum8. Сравнивать с accum8.
+STEPS=4 run_one tokenbatch \
+  --max_tokens_per_batch 65536 --gradient_accumulation_steps 5
+STEPS=4 run_one tokenbatch_nobucket \
+  --max_tokens_per_batch 65536 --gradient_accumulation_steps 5 --length_bucket 0
+
 echo
 echo "[matrix] готово. Сводка:"
 echo "    /opt/venv/bin/python -m scripts.throughput_report $OUT"
