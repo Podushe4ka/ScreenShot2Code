@@ -31,6 +31,26 @@ SKIP_EXISTING="${SKIP_EXISTING:-0}"
 
 mkdir -p "$OUT"
 
+# Упавший ранг оставляет живой CUDA-контекст, и следующий эксперимент падает по
+# OOM не по своей вине. Добиваем своё и ждём, пока карты реально освободятся.
+# pkill по имени модуля безопасен: у контейнера свой PID-namespace, чужие
+# процессы на GPU 2/3 отсюда не видны.
+free_gpus() {
+  pkill -9 -f "scripts.throughput_run" 2>/dev/null
+  pkill -9 -f "torch.distributed.run" 2>/dev/null
+  local used limit=$((2000 * NPROC))
+  for _ in $(seq 1 45); do
+    used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits \
+           | head -n "$NPROC" | awk '{s+=$1} END {print s+0}')
+    if [[ "$used" -lt "$limit" ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "[matrix] ВНИМАНИЕ: карты не освободились за 90с (занято ${used} MiB, порог ${limit})"
+  nvidia-smi --query-compute-apps=pid,used_memory --format=csv | sed 's/^/    /'
+}
+
 run_one() {
   local name="$1"; shift
   if [[ -n "$ONLY" && "$ONLY" != "$name" ]]; then
@@ -65,7 +85,7 @@ run_one() {
     echo "[matrix] $name: УПАЛ (код $rc, ${dt}с) — $OUT/$name.log"
     grep -m1 -E "OutOfMemoryError|SIGSEGV|Error" "$OUT/$name.log" | sed 's/^/    /'
   fi
-  sleep 5
+  free_gpus
 }
 
 # ---- база и реализация внимания ---------------------------------------------
