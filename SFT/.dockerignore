@@ -2,3 +2,6 @@
 __pycache__
 data/websight20
 .git
+.container-home
+build.sh
+run.sh

@@ -1,12 +1,24 @@
-"""Overfit sanity-check: 20 WebSight examples, LoRA, loss must collapse.
+"""Overfit sanity-check: 20 примеров WebSight, full fine-tune, лосс обязан рухнуть.
 
-Run (either way works):
-    CUDA_VISIBLE_DEVICES=0 uv run python -m scripts.overfit20 [--model_name_or_path ...]
-    CUDA_VISIBLE_DEVICES=0 uv run python scripts/overfit20.py
+Запуск (одна карта):
+    CUDA_VISIBLE_DEVICES=0 uv run python -m scripts.overfit20
+    CUDA_VISIBLE_DEVICES=0 uv run python scripts/overfit20.py --model_name_or_path ...
 
-If the loss does not drop by an order of magnitude on 20 examples, the bug is
-in the pipeline (label masking, collation, target modules) — not in the data.
-Fix it here before starting a real run.
+Запуск как в проде (две карты, ZeRO-2) — если одна карта не тянет по памяти:
+    CUDA_VISIBLE_DEVICES=0,1 uv run torchrun --nproc_per_node=2 \
+        -m scripts.overfit20 --deepspeed configs/deepspeed_zero2.json
+
+Если на 20 примерах лосс не падает на порядок — баг в пайплайне (маскирование
+меток, коллация, бюджет длины), а не в данных. Чинить здесь, до боевого рана.
+
+Веса пишутся в ./train_res/<run_name>/ (~8 ГБ для 4B в bf16) — чтобы можно было
+скормить переобученной модели тот же скриншот и посмотреть, что она отдаёт.
+Промежуточных чекпоинтов нет (`save_strategy="no"`), сохраняется только финал.
+
+Почему full FT, а не LoRA: LoRA проверяет меньше. При замороженной базе часть
+ошибок в маскировании и коллации маскируется самим адаптером — он просто не
+может выучить мусор. Full FT переобучается на 20 примерах гарантированно, и
+если этого не произошло, поломка настоящая.
 """
 import argparse
 import sys
@@ -28,17 +40,12 @@ from configs.gen import MODELS, max_length_for
 from train.train_sft import build_trainer
 
 DATA_PATH = Path("data/websight20")
-DEFAULT_MODEL = "Qwen/Qwen3.5-9B"
+DEFAULT_MODEL = "Qwen/Qwen3.5-4B"
 
-LORA_TARGET_MODULES = [
-    "q_proj",
-    "k_proj",
-    "v_proj",
-    "o_proj",
-    "gate_proj",
-    "up_proj",
-    "down_proj",
-]
+
+LEARNING_RATE = 2.0e-5
+WEIGHT_DECAY = 0.05
+
 
 def preparing():
     if (DATA_PATH / "dataset_info.json").exists():
@@ -69,44 +76,69 @@ def preparing():
     dataset.save_to_disk(DATA_PATH)
 
 
+def entry_for(model_id: str) -> dict | None:
+    """Описание модели из configs/gen.py по её HF-идентификатору."""
+    return next((m for m in MODELS.values() if m["id"] == model_id), None)
+
+
 def main():
     preparing()
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name_or_path", default=DEFAULT_MODEL)
-    parser.add_argument("--revision", default="c202236235762e1c871ad0ccb60c8ee5ba337b9a")
+    parser.add_argument(
+        "--revision",
+        default=None,
+        help="по умолчанию берётся ревизия модели из configs/gen.py",
+    )
     parser.add_argument(
         "--max_length",
         type=int,
         default=None,
         help="по умолчанию берётся расчётный бюджет модели из configs/gen.py",
     )
+    parser.add_argument(
+        "--per_device_train_batch_size",
+        type=int,
+        default=None,
+        help="по умолчанию full_bs модели из configs/gen.py",
+    )
+    parser.add_argument(
+        "--deepspeed",
+        default=None,
+        help="путь к конфигу ZeRO, напр. configs/deepspeed_zero2.json",
+    )
     args = parser.parse_args()
-
-    max_length = args.max_length
-    if max_length is None:
-        entry = next(
-            (m for m in MODELS.values() if m["id"] == args.model_name_or_path), None
+    entry = entry_for(args.model_name_or_path)
+    if entry is None and (
+        args.revision is None
+        or args.max_length is None
+        or args.per_device_train_batch_size is None
+    ):
+        parser.error(
+            f"{args.model_name_or_path} нет в configs/gen.py — задайте "
+            "--revision, --max_length и --per_device_train_batch_size явно"
         )
-        if entry is None:
-            parser.error(
-                f"{args.model_name_or_path} нет в configs/gen.py — "
-                "задайте --max_length явно"
-            )
-        max_length = max_length_for(entry)
-    print(f"max_length={max_length}")
 
-    # Датасет сохранён одним куском, без сплитов: eval здесь и не нужен —
-    # цель проверки в том, чтобы train loss схлопнулся.
+    revision = args.revision or entry["rev"]
+    max_length = args.max_length or max_length_for(entry)
+    batch_size = args.per_device_train_batch_size or entry.get("full_bs", 2)
+    print(
+        f"модель={args.model_name_or_path} rev={revision[:8]} "
+        f"max_length={max_length} bs={batch_size} full FT"
+    )
+
     script_args = ScriptArguments(dataset_name=str(DATA_PATH))
     training_args = SFTConfig(
         output_dir="./train_res",
         num_train_epochs=15,
-        learning_rate=2e-4,
+        learning_rate=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
         lr_scheduler_type="constant",
         warmup_ratio=0.0,
+        optim="adamw_torch_fused",
         logging_steps=1,
-        per_device_train_batch_size=4,
+        per_device_train_batch_size=batch_size,
         gradient_accumulation_steps=1,
         save_strategy="no",
         bf16=True,
@@ -114,21 +146,24 @@ def main():
         max_length=max_length,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
+        deepspeed=args.deepspeed,
     )
     model_args = ModelConfig(
         model_name_or_path=args.model_name_or_path,
-        model_revision=args.revision,
+        model_revision=revision,
         dtype="bfloat16",
-        use_peft=True,
-        lora_r=16,
-        lora_alpha=32,
-        lora_dropout=0.0,
-        lora_target_modules=LORA_TARGET_MODULES,
-        attn_implementation="flash_attention_2"
+        use_peft=False,
+        attn_implementation="flash_attention_2",
     )
 
     trainer = build_trainer(script_args, training_args, model_args)
     trainer.train()
+
+    # Сохраняем ДО проверки лосса: если тест не прошёл, веса нужны тем более —
+    # по генерациям переобученной модели видно, что именно она выучила.
+    trainer.save_model(training_args.output_dir)
+    trainer.processing_class.save_pretrained(training_args.output_dir)
+    print(f"чекпоинт: {training_args.output_dir}")
 
     losses = [r["loss"] for r in trainer.state.log_history if "loss" in r]
     print(

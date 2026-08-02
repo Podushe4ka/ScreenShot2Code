@@ -1,6 +1,8 @@
 import logging
 import math
 
+from datasets import concatenate_datasets
+
 logger = logging.getLogger(__name__)
 
 DRAFTING_PROMPT = (
@@ -39,7 +41,7 @@ EDITING_SUFFIX = (
 )
 
 MIN_PIXELS = 262_144
-MAX_PIXELS = 1_310_720
+MAX_PIXELS = 2_097_152
 
 RESPONSE_TEMPLATE = "<|im_start|>assistant\n"
 TURN_END = "<|im_end|>"
@@ -51,11 +53,6 @@ _MAX_WHITESPACE_SKIP = 4
 def visual_token_budget(processor) -> int:
     """
     Верхняя оценка числа визуальных токенов на одну картинку.
-
-    Именно оценка сверху: smart_resize округляет стороны вниз до кратного
-    factor, поэтому фактическое число на несколько процентов меньше (1280x1280
-    при потолке 1.31 Мп -> 35x35 = 1225 токенов). Для фильтрации по бюджету
-    ошибка в эту сторону безопасна.
     """
     ip = processor.image_processor
     factor = ip.patch_size * ip.merge_size
@@ -126,6 +123,30 @@ def to_message(example):
     return example
 
 
+def build_messages(dataset):
+    """
+    Плоская таблица с единственной колонкой messages.
+
+    Отдельно от `add_messages`, потому что склейка по axis=1 даёт
+    `ConcatenationTable`, а её нельзя нарезать на шарды и передать воркерам
+    `map(num_proc>1)` — распаковка на стороне воркера падает в
+    `ConcatenationTable.__setstate__`. Замер длины ходит по этой таблице.
+    """
+    text_columns = [name for name in dataset.column_names if name != "images"]
+    return dataset.select_columns(text_columns).map(
+        to_message, remove_columns=text_columns, desc="Разбор сэмплов в messages"
+    )
+
+
+def add_messages(dataset, messages=None):
+    """
+    Приклеивает messages к датасету, не притрагиваясь к колонке images.
+    """
+    if messages is None:
+        messages = build_messages(dataset)
+    return concatenate_datasets([dataset, messages], axis=1)
+
+
 def _find_subsequence(seq: list[int], sub: list[int], start: int = 0) -> int | None:
     """Первое вхождение `sub` в `seq` начиная с позиции `start`."""
     if not sub:
@@ -143,15 +164,8 @@ def _assistant_spans(
     turn_end_ids: list[int],
     think_end_ids: list[int],
 ) -> list[tuple[int, int]]:
-    """Интервалы [start, end) ответов ассистента — то, что попадает в лосс.
-
-    Собираются ВСЕ ходы ассистента, а не первый: одноходовому drafting это
-    безразлично, а multi-turn (polishing-траектории: генерация -> фидбек
-    харнеса -> исправление) при маскировании по одной границе сломался бы —
-    пользовательский фидбек между ходами попал бы в лосс.
-
-    `<|im_end|>` включается в интервал намеренно: модель должна научиться
-    останавливаться.
+    """
+    Интервалы [start, end) в лосс.
     """
     spans: list[tuple[int, int]] = []
     pos = 0
@@ -182,9 +196,14 @@ def _assistant_spans(
     return spans
 
 
-def make_collate_fn(processor):
+def make_collate_fn(processor, pad_to_multiple_of: int | None = None):
     """
     Коллатор с маскированием лосса по ходам ассистента.
+
+    `pad_to_multiple_of` округляет длину батча вверх. Профиль показал 272
+    загрузки CUDA-ядер посреди прогона: `fla` компилирует своё ядро под каждую
+    новую форму, а при паддинге до максимума в батче формы почти не повторяются.
+    Округление до корзины сводит их к десятку.
     """
     tokenizer = processor.tokenizer
     image_token_id = tokenizer.convert_tokens_to_ids("<|image_pad|>")
@@ -206,12 +225,16 @@ def make_collate_fn(processor):
             for ex in examples
         ]
         images = [ex["images"] for ex in examples]
+        pad_kwargs = {}
+        if pad_to_multiple_of:
+            pad_kwargs["pad_to_multiple_of"] = pad_to_multiple_of
         batch = processor(
             text=texts,
             images=images,
             return_tensors="pt",
             padding=True,
             add_special_tokens=False,
+            **pad_kwargs,
         )
 
         input_ids = batch["input_ids"]
