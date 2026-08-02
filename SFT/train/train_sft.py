@@ -45,6 +45,24 @@ def make_run_name(training_args) -> str:
     return f"{base}_s{training_args.seed}_{time.strftime('%Y%m%d-%H%M%S')}"
 
 
+def effective_optimizer(training_args) -> str:
+    """Какой оптимизатор реально создастся.
+
+    DeepSpeed при заданном блоке `optimizer` в своём json делает его сам и
+    игнорирует `optim` из конфига transformers.
+    """
+    own = getattr(training_args.optim, "value", training_args.optim)
+    ds = training_args.deepspeed
+    if not ds:
+        return own
+    try:
+        cfg = ds if isinstance(ds, dict) else json.loads(Path(ds).read_text())
+    except (OSError, ValueError):
+        return own
+    block = cfg.get("optimizer")
+    return f"deepspeed:{block.get('type')}" if block else own
+
+
 def isolate_compile_caches() -> None:
     """Свой каталог кэша компиляции на ранг.
 
@@ -201,6 +219,7 @@ def build_trainer(
         "train_samples": len(train_dataset),
         "eval_samples": len(eval_dataset) if eval_dataset is not None else 0,
         "max_length": training_args.max_length,
+        "optimizer": effective_optimizer(training_args),
         "image_pixels": MAX_PIXELS,
         "image_tokens": visual_token_budget(processor),
         "vision_factor": processor.image_processor.patch_size
