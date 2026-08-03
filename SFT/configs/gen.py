@@ -23,7 +23,7 @@ TARGET_EFF_BATCH = 64
 
 TOKEN_BATCHING = False
 
-TARGET_EFF_TOKENS = 750_000
+TARGET_EFF_TOKENS = 474_000
 
 CODE_BUDGET_TOKENS = 14176
 
@@ -110,7 +110,7 @@ MODELS = {
         "id": "Qwen/Qwen3.5-27B",
         "rev": "fc05daec18b0a78c049392ed2e771dde82bdf654",
         "factor": 32,
-        "lora_bs": 1, "full_zero": 3,
+        "lora_bs": 1, "lora_zero": 3, "full_zero": 3,
     },
 }
 
@@ -161,7 +161,9 @@ def max_length_for(m: dict) -> int:
 
 def lora_cfg(name: str, m: dict) -> dict:
     bs = m["lora_bs"]
+    zero = m.get("lora_zero")
     return {
+        **({"deepspeed": DEEPSPEED[zero]} if zero else {}),
         "model_name_or_path": m["id"],
         "model_revision": m["rev"],
         **SHARED_PARAMS,
