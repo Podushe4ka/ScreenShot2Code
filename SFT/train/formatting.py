@@ -124,14 +124,6 @@ def to_message(example):
 
 
 def build_messages(dataset):
-    """
-    Плоская таблица с единственной колонкой messages.
-
-    Отдельно от `add_messages`, потому что склейка по axis=1 даёт
-    `ConcatenationTable`, а её нельзя нарезать на шарды и передать воркерам
-    `map(num_proc>1)` — распаковка на стороне воркера падает в
-    `ConcatenationTable.__setstate__`. Замер длины ходит по этой таблице.
-    """
     text_columns = [name for name in dataset.column_names if name != "images"]
     return dataset.select_columns(text_columns).map(
         to_message, remove_columns=text_columns, desc="Разбор сэмплов в messages"
@@ -199,11 +191,6 @@ def _assistant_spans(
 def make_collate_fn(processor, pad_to_multiple_of: int | None = None):
     """
     Коллатор с маскированием лосса по ходам ассистента.
-
-    `pad_to_multiple_of` округляет длину батча вверх. Профиль показал 272
-    загрузки CUDA-ядер посреди прогона: `fla` компилирует своё ядро под каждую
-    новую форму, а при паддинге до максимума в батче формы почти не повторяются.
-    Округление до корзины сводит их к десятку.
     """
     tokenizer = processor.tokenizer
     image_token_id = tokenizer.convert_tokens_to_ids("<|image_pad|>")
