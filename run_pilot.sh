@@ -58,13 +58,32 @@ if [[ -z "${CLEARML_API_ACCESS_KEY:-}" ]]; then
 fi
 
 # ID | конфиг | S-ID плана | доп. аргументы обучения | пиксель-бюджет
-EXPERIMENTS=(
+#
+# Волна 1 — решить LoRA vs full-FT. По ДВА LR на метод, потому что у них разные
+# оптимумы (LoRA ~1e-4..3e-4, full ~1e-5..3e-5): сравнение «одна точка против
+# одной» спутано с LR, и проигравшим может оказаться просто неудачно
+# настроенный метод, а не метод как таковой. Сравнивать лучшее с лучшим.
+WAVE1=(
   "E1|configs/lora_ft_qwen3_5_4b.yaml|S0|--learning_rate 1e-4|2097152"
-  "E2|configs/full_ft_qwen3_5_4b.yaml|S5|--learning_rate 1e-5|2097152"
-  "E3|configs/lora_ft_qwen3_5_4b.yaml|S8|--learning_rate 3e-4|2097152"
-  "E4|configs/lora_ft_qwen3_5_4b.yaml|S2|--learning_rate 1e-4|3932160"
-  "E5|configs/lora_ft_qwen3_5_4b.yaml|S10|--learning_rate 1e-4 --lora_r 64 --lora_alpha 128|2097152"
+  "E2|configs/lora_ft_qwen3_5_4b.yaml|S8|--learning_rate 3e-4|2097152"
+  "E3|configs/full_ft_qwen3_5_4b.yaml|S5|--learning_rate 1e-5|2097152"
+  "E4|configs/full_ft_qwen3_5_4b.yaml|S5|--learning_rate 3e-5|2097152"
 )
+
+# Волна 2 — оси, которые осмысленно крутить УЖЕ на победившем методе.
+# Запуск: WAVE=2 ./run_pilot.sh (после того, как волна 1 выбрала метод;
+# конфиг в строках при необходимости поменять на full_ft_*).
+WAVE2=(
+  "E5|configs/lora_ft_qwen3_5_4b.yaml|S2|--learning_rate 1e-4|3932160"
+  "E6|configs/lora_ft_qwen3_5_4b.yaml|S10|--learning_rate 1e-4 --lora_r 64 --lora_alpha 128|2097152"
+)
+
+case "${WAVE:-1}" in
+  1)   EXPERIMENTS=("${WAVE1[@]}") ;;
+  2)   EXPERIMENTS=("${WAVE2[@]}") ;;
+  all) EXPERIMENTS=("${WAVE1[@]}" "${WAVE2[@]}") ;;
+  *)   echo "WAVE должно быть 1, 2 или all"; exit 1 ;;
+esac
 
 # 1000 примеров: при эфф. батче 64 выходит 46 шагов оптимизатора на 3 эпохи —
 # для сходимости мало. Берём 16 (187 шагов). Микробатч 4, а не 8: по замерам
