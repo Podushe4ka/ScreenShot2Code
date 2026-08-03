@@ -77,6 +77,29 @@ echo
 # --outdir всегда фиксирован на /app/output внутри контейнера (примонтирован
 # с хоста) - остальные аргументы (--n-samples, --batch-size, --model, и т.д.)
 # прозрачно прокидываются как есть в run_benchmark_batched.py через "$@".
+# Креды ClearML пробрасываем, только если они есть в окружении: без них
+# tracking.py тихо становится no-op, и прогон уходит «в никуда» — метрики
+# остаются лежать в summary.json, но в UI их нет.
+env_args=()
+for var in CLEARML_API_ACCESS_KEY CLEARML_API_SECRET_KEY CLEARML_API_HOST \
+           CLEARML_WEB_HOST CLEARML_FILES_HOST CLEARML_PROJECT CLEARML_TAGS \
+           CLEARML_TRAIN_TASK CLEARML_DISABLE HF_TOKEN; do
+    if [[ -n "${!var:-}" ]]; then
+        env_args+=(-e "$var=${!var}")
+    fi
+done
+if [[ -z "${CLEARML_API_ACCESS_KEY:-}" && "${CLEARML_DISABLE:-}" != "1" ]]; then
+    echo "[run] ВНИМАНИЕ: CLEARML_API_ACCESS_KEY не задан — трекинг будет выключен."
+fi
+
+# Чекпоинт может лежать вне HF-кэша (например, каталог обучения) — тогда его
+# надо примонтировать отдельно, иначе внутри контейнера пути просто нет.
+mount_args=()
+if [[ -n "${HOST_MODEL_DIR:-}" ]]; then
+    mount_args+=(-v "$HOST_MODEL_DIR:$HOST_MODEL_DIR:ro")
+    echo "[run] модель (хост): $HOST_MODEL_DIR (примонтирована как есть)"
+fi
+
 docker run \
     --name "$CONTAINER_NAME" \
     --gpus "$GPUS" \
@@ -84,6 +107,8 @@ docker run \
     --ipc=host \
     -v "$HOST_OUTDIR:/app/output" \
     -v "$HOST_HF_CACHE:/root/.cache/huggingface" \
+    "${mount_args[@]}" \
+    "${env_args[@]}" \
     "$IMAGE_TAG" \
     --outdir /app/output \
     "$@"
