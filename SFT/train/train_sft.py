@@ -32,6 +32,7 @@ from train.formatting import (
     make_collate_fn,
     visual_token_budget,
 )
+from train.tracking import ClearMLEnrichCallback
 
 logger = logging.getLogger(__name__)
 
@@ -258,15 +259,20 @@ def build_trainer(
         "processing_class": processor,
     }
     if batch_sampler is None:
-        return SFTTrainer(**common)
+        trainer = SFTTrainer(**common)
+    else:
+        trainer = TokenBudgetSFTTrainer(batch_sampler=batch_sampler, **common)
+        if not getattr(trainer, "model_accepts_loss_kwargs", False):
+            logger.warning(
+                "model_accepts_loss_kwargs=False: лосс будет нормироваться на число "
+                "микробатчей, а не на число токенов. При плавающем размере батча это "
+                "перекосит градиент в пользу мелких батчей."
+            )
 
-    trainer = TokenBudgetSFTTrainer(batch_sampler=batch_sampler, **common)
-    if not getattr(trainer, "model_accepts_loss_kwargs", False):
-        logger.warning(
-            "model_accepts_loss_kwargs=False: лосс будет нормироваться на число "
-            "микробатчей, а не на число токенов. При плавающем размере батча это "
-            "перекосит градиент в пользу мелких батчей."
-        )
+    # Обогащаем ClearML-задачу (её создаёт авто-callback при report_to=clearml)
+    # тегами/hparams по осям свипа. Добавляем ПОСЛЕ штатных колбэков, чтобы на
+    # on_train_begin задача уже существовала. No-op, если clearml выключен.
+    trainer.add_callback(ClearMLEnrichCallback(meta, training_args, model_args))
     return trainer
 
 

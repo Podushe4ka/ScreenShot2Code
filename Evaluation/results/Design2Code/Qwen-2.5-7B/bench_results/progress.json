@@ -1,0 +1,19 @@
+{
+  "next_batch_idx": 1,
+  "dataset_offset": 484,
+  "n_generation_errors": 0,
+  "n_metric_errors": 0,
+  "n_other_errors": 0,
+  "accumulator": {
+    "sums": {
+      "block_match": 406.0910553929242,
+      "text": 462.52180633086846,
+      "position": 369.97018335715285,
+      "color": 362.4692526692112,
+      "clip": 422.21435546875,
+      "final_score": 395.1041219585078,
+      "final_score_arithmetic": 404.6533306437814
+    },
+    "count": 484
+  }
+}
