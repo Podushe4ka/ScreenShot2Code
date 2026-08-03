@@ -1,3 +1,4 @@
+deepspeed: configs/deepspeed_zero3.json
 model_name_or_path: Qwen/Qwen3.5-27B
 model_revision: fc05daec18b0a78c049392ed2e771dde82bdf654
 dtype: bfloat16
@@ -18,10 +19,10 @@ logging_steps: 1
 logging_first_step: true
 include_num_input_tokens_seen: true
 eval_strategy: steps
-eval_steps: 0.33
+eval_steps: 0.25
 save_strategy: steps
-save_steps: 0.33
-save_total_limit: 3
+save_steps: 0.25
+save_total_limit: 4
 save_only_model: true
 bf16: true
 fp16: false

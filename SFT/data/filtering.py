@@ -86,16 +86,6 @@ def filter_by_length(
     num_proc: int | None = None,
 ) -> tuple[Dataset, LengthReport]:
     """Убрать сэмплы, не влезающие в `max_length`.
-
-    `messages` — плоская таблица из `build_messages`, по ней идёт замер. Брать
-    колонку из самого `dataset` нельзя: после склейки по axis=1 он
-    `ConcatenationTable`, и `map(num_proc>1)` роняет воркеров на распаковке
-    нарезанного шарда.
-
-    Возвращает отфильтрованный датасет и отчёт. В датасет добавляется колонка
-    `length` — её читает `LengthGroupedSampler` при
-    `train_sampling_strategy=group_by_length`, чтобы собирать батчи из сэмплов
-    близкой длины и не тратить шаг на паддинг.
     """
     image_budget = visual_token_budget(processor)
     lengths = messages.map(

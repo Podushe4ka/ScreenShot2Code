@@ -47,9 +47,6 @@ def make_run_name(training_args) -> str:
 
 def effective_optimizer(training_args) -> str:
     """Какой оптимизатор реально создастся.
-
-    DeepSpeed при заданном блоке `optimizer` в своём json делает его сам и
-    игнорирует `optim` из конфига transformers.
     """
     own = getattr(training_args.optim, "value", training_args.optim)
     ds = training_args.deepspeed
@@ -64,11 +61,6 @@ def effective_optimizer(training_args) -> str:
 
 
 def isolate_compile_caches() -> None:
-    """Свой каталог кэша компиляции на ранг.
-
-    Ранги компилируют одни и те же ядра fla одновременно; при общем каталоге
-    один читает чужой недописанный .ptx/.cubin и падает с FileNotFoundError.
-    """
     rank = os.environ.get("LOCAL_RANK", "0")
     for var in ("TRITON_CACHE_DIR", "TORCHINDUCTOR_CACHE_DIR"):
         base = os.environ.get(var)
@@ -144,8 +136,6 @@ def _setup_token_batching(training_args, batching_args, train_dataset, say):
     )
     say(batch_plan_report(batches, lengths, budget, batching_args.length_bucket))
 
-    # BatchSamplerShard при even_batches=True рассчитан на постоянный размер
-    # батча и добивает их число дублями с начала датасета. У нас размер плавает.
     if getattr(training_args.accelerator_config, "even_batches", False):
         training_args.accelerator_config.even_batches = False
         say("accelerator_config.even_batches выключен: батчи переменного размера")

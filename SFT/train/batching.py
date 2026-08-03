@@ -1,20 +1,4 @@
 """Батчинг по бюджету токенов вместо фиксированного числа примеров.
-
-Зачем. При фиксированном `per_device_train_batch_size` потолок памяти считается
-по самому длинному примеру, и на коротких батч недозаполняется. Разброс длин у
-webcode2m — 26x, поэтому число запусков forward/backward выходит почти вдвое
-больше необходимого, а профиль показал, что мы упираемся не в вычисления, а в
-диспетчеризацию: CPU тратит вдвое больше времени, чем GPU (см. THROUGHPUT.md).
-
-Стоимость батча считается по паддингу — `n * L_max`, а не суммой длин: в память
-ложится прямоугольник, и набор по сумме даёт OOM на батче из разнодлинных
-примеров.
-
-`length_bucket` округляет `L_max` вверх. Это не косметика: `fla` компилирует
-ядро под каждую новую форму тензора, и в профиле видно 272 загрузки ядер уже
-на третьем шаге. Округление сводит число различных форм к десятку. Работает
-только вместе с `pad_to_multiple_of` у коллатора — иначе батч всё равно
-паддится до своего максимума.
 """
 
 import logging
@@ -67,12 +51,6 @@ def plan_token_batches(
     max_batch_size: int | None = None,
     bucket: int = 1024,
 ) -> list[list[int]]:
-    """Разложить индексы по батчам так, чтобы `n * L_max <= max_tokens`.
-
-    Сортировка по убыванию длины: самые тяжёлые батчи идут первыми, поэтому
-    OOM (если он есть) случается на первом шаге, а не через час обучения.
-    Пример длиннее бюджета не выбрасывается — уходит в батч из одного.
-    """
     order = sorted(range(len(lengths)), key=lambda i: lengths[i], reverse=True)
 
     batches: list[list[int]] = []
@@ -115,7 +93,6 @@ def plan_token_batches(
 def batch_plan_report(
     batches: list[list[int]], lengths: list[int], max_tokens: int, bucket: int
 ) -> str:
-    """Строка для лога — печатать до загрузки модели, как LengthReport."""
     sizes = [len(b) for b in batches]
     fill = [
         len(b) * bucketed(max(lengths[i] for i in b), bucket) / max_tokens
@@ -131,20 +108,6 @@ def batch_plan_report(
 
 
 class TokenBudgetBatchSampler(Sampler[list[int]]):
-    """Состав батчей фиксирован, между эпохами меняется только их порядок.
-
-    Фиксированный состав даёт стабильный `__len__`, а значит воспроизводимое
-    число шагов и корректное LR-расписание.
-
-    Сэмплер намеренно НЕ знает про ранги: `accelerator.prepare` оборачивает его
-    в `BatchSamplerShard`, который сам раздаёт батчи по процессам. Ручной шардинг
-    привёл бы к двойному делению.
-
-    Эпохи считаются внутренним счётчиком: `BatchSamplerShard` не пробрасывает
-    `set_epoch`, а каждый ранг вызывает `__iter__` ровно раз за эпоху, так что
-    счётчики остаются синхронными.
-    """
-
     def __init__(self, batches: list[list[int]], seed: int = 0):
         self._batches = batches
         self._seed = seed
@@ -163,9 +126,6 @@ class TokenBudgetBatchSampler(Sampler[list[int]]):
 
 class TokenBudgetSFTTrainer(SFTTrainer):
     """SFTTrainer с батчами переменного размера.
-
-    `Trainer._get_dataloader` умеет пробрасывать только `sampler`, ручки для
-    `batch_sampler` там нет — поэтому переопределяем весь `get_train_dataloader`.
     """
 
     def __init__(self, *args, batch_sampler: Sampler | None = None, **kwargs):
