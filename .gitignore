@@ -17,3 +17,8 @@ verify/
 
 # вывод analysis/compare_datasets.py
 Data/analysis/*.png
+*bench_results*
+
+# креды (ClearML, HF) — НИКОГДА в git
+.env
+*.env
