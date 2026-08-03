@@ -1,5 +1,6 @@
 import logging
 import math
+import os
 
 from datasets import concatenate_datasets
 
@@ -40,8 +41,14 @@ EDITING_SUFFIX = (
     "Output ONLY the raw HTML, with no explanation and no markdown code fences."
 )
 
-MIN_PIXELS = 262_144
-MAX_PIXELS = 2_097_152
+# Пиксель-бюджет картинки. Переопределяется через окружение, чтобы свипать ось A
+# плана, не плодя конфиги: SFT_MAX_PIXELS=3932160 (3.93 Мп) даёт странице 1280x3072
+# натуральный масштаб, тогда как при 2.10 Мп она ужимается до 928x2240 (текст в
+# 1.38 раза мельче). Значение уезжает в meta -> ClearML (тег pxN.NNMp), так что ран
+# самоописателен. Тот же бюджет обязан стоять на бенче (--max-pixels), иначе
+# чекпоинт меряется вне своего трейн-распределения.
+MIN_PIXELS = int(os.environ.get("SFT_MIN_PIXELS", 262_144))
+MAX_PIXELS = int(os.environ.get("SFT_MAX_PIXELS", 2_097_152))
 
 RESPONSE_TEMPLATE = "<|im_start|>assistant\n"
 TURN_END = "<|im_end|>"
