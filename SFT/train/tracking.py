@@ -11,8 +11,10 @@ LoRA/full, пиксель-бюджет, S-ID) и плоский срез гип�
 установлен — модуль тоже становится no-op и обучение не падает.
 """
 
+import json
 import logging
 import os
+from pathlib import Path
 
 from transformers import TrainerCallback
 
@@ -96,4 +98,37 @@ class ClearMLEnrichCallback(TrainerCallback):
             logger.info("ClearML: задача обогащена тегами/hparams")
         except Exception as e:  # noqa: BLE001 — трекер не должен ронять обучение
             logger.warning("не удалось обогатить clearml Task: %s", e)
+        save_task_link(self._training_args.output_dir, task, self._meta)
         self._done = True
+
+
+def save_task_link(output_dir, task=None, meta=None) -> None:
+    """Положить id задачи обучения рядом с чекпоинтом (`clearml_task.json`).
+
+    Это мост train -> bench: бенч запускается отдельным контейнером и о ClearML
+    обучения ничего не знает. `merge_lora` переносит этот файл к слитым весам, а
+    `Evaluation/tracking.py` подхватывает его и проставляет ссылку на ран.
+    Ошибки глушим — трекер не должен ронять обучение."""
+    if task is None:
+        try:
+            from clearml import Task
+
+            task = Task.current_task()
+        except ImportError:
+            return
+    if task is None or not output_dir:
+        return
+    try:
+        path = Path(output_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        payload = {"train_task_id": task.id, "train_task_name": task.name}
+        if meta:
+            payload["model"] = meta.get("model")
+            payload["dataset"] = meta.get("dataset")
+            payload["peft"] = meta.get("peft")
+        (path / "clearml_task.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        logger.info("ClearML: ссылка на задачу сохранена в %s", path / "clearml_task.json")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("не удалось сохранить clearml_task.json: %s", e)

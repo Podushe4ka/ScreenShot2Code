@@ -96,6 +96,10 @@ def parse_args():
                          help="Размер одного динамического батча из HF (генерация+рендер+метрики "
                               "прогоняются на нём целиком, потом файлы батча удаляются).")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--train-task-id", default=None,
+                        help="id ClearML-задачи обучения, из которой взят чекпоинт. "
+                             "Обычно не нужен: подхватывается из clearml_task.json "
+                             "рядом с весами. Указывай, если веса копировали руками.")
     parser.add_argument("--max-new-tokens", type=int, default=8192)
     parser.add_argument("--outdir", default="./design2code_results")
     parser.add_argument("--hf-dataset", default="HuggingFaceM4/WebSight")

@@ -9,6 +9,7 @@
 все функции становятся no-op и возвращают None. Бенч не должен падать из-за трекера.
 """
 
+import json
 import logging
 import math
 import os
@@ -74,21 +75,64 @@ def start_benchmark_task(args):
         logger.warning("не удалось поднять clearml Task (%s) — трекинг выключен", e)
         return None
 
-    task.connect(
-        {
-            "model": model,
-            "hf_dataset": args.hf_dataset,
-            "n_samples": args.n_samples,
-            "max_new_tokens": args.max_new_tokens,
-            "min_pixels": args.min_pixels,
-            "max_pixels": args.max_pixels,
-            "max_model_len": args.max_model_len,
-            "enable_thinking": args.enable_thinking,
-            "seed": args.seed,
-        },
-        name="bench_args",
-    )
+    bench_args = {
+        "model": model,
+        "hf_dataset": args.hf_dataset,
+        "n_samples": args.n_samples,
+        "max_new_tokens": args.max_new_tokens,
+        "min_pixels": args.min_pixels,
+        "max_pixels": args.max_pixels,
+        "max_model_len": args.max_model_len,
+        "enable_thinking": args.enable_thinking,
+        "seed": args.seed,
+    }
+
+    # Связь с раном обучения: из какого чекпоинта эти веса.
+    train_link = _find_train_link(model, args)
+    if train_link:
+        bench_args.update(train_link)
+        _link_to_train_task(task, train_link["train_task_id"])
+
+    task.connect(bench_args, name="bench_args")
     return task
+
+
+def _find_train_link(model, args=None) -> dict | None:
+    """Найти `clearml_task.json`, положенный обучением рядом с чекпоинтом.
+
+    Явное указание (`--train-task-id` или CLEARML_TRAIN_TASK) имеет приоритет
+    над файлом: при ручном копировании весов файл мог не поехать вместе с ними."""
+    explicit = getattr(args, "train_task_id", None) or os.environ.get("CLEARML_TRAIN_TASK")
+    if explicit:
+        return {"train_task_id": explicit}
+    if not os.path.isdir(str(model)):
+        return None  # модель с HF-хаба — обучения за ней нет
+    path = os.path.join(str(model), "clearml_task.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("не удалось прочитать %s: %s", path, e)
+        return None
+    return {k: v for k, v in data.items() if v is not None}
+
+
+def _link_to_train_task(task, train_task_id) -> None:
+    """Двусторонняя связь: тег+ссылка на бенче и обратная ссылка на обучении.
+
+    Односторонней мало: в UI обычно идёшь от рана обучения к его метрикам, а не
+    наоборот."""
+    try:
+        from clearml import Task
+
+        task.add_tags([f"train:{train_task_id}"])
+        train = Task.get_task(task_id=train_task_id)
+        if train is not None:
+            train.add_tags([f"bench:{task.id}"])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("не удалось связать с задачей обучения %s: %s", train_task_id, e)
 
 
 def log_benchmark_results(task, df, results_path=None):
