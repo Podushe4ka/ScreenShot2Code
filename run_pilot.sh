@@ -7,8 +7,9 @@
 # SFT/run.sh и Evaluation/run.sh. Изнутри контейнера работать не будет —
 # docker в нём недоступен.
 #
-#   ./run_pilot.sh                 # волна 1: LoRA vs full-FT, 4 рана, ~8.9 ч
-#   WAVE=2 ./run_pilot.sh          # волна 2: пиксель-бюджет и r64, ~4.6 ч
+#   ./run_pilot.sh                 # волна 1: LoRA vs full-FT, 4 рана, ~4.8 ч
+#   WAVE=2 ./run_pilot.sh          # волна 2: пиксель-бюджет и r64, ~2.6 ч
+#   WAVE=all ./run_pilot.sh        # обе волны подряд, ~7.3 ч (влезает в ночь)
 #   DRY_RUN=1 ./run_pilot.sh       # показать команды, ничего не запуская
 #   ONLY="E1 E3" ./run_pilot.sh    # только часть
 #   SKIP_BENCH=1 ./run_pilot.sh    # только обучение, без бенча
@@ -38,8 +39,8 @@ DATASET_NAME="${DATASET_NAME:-webcode2m_1000_split}"
 # повторно в каждый контейнер незачем.
 DEFAULT_HF=/mnt/storage-1/hf_cache
 HF_CACHE="${HF_CACHE:-$([[ -d $DEFAULT_HF ]] && echo $DEFAULT_HF || echo "$HOME/.cache/huggingface")}"
-# GPU 1 занята — по умолчанию берём только свободные.
-GPUS="${GPUS:-\"device=0,2,3\"}"
+# Какие карты свободны — МЕНЯЕТСЯ, проверяй nvidia-smi перед запуском.
+GPUS="${GPUS:-\"device=0,1\"}"
 NPROC="${NPROC:-2}"
 # Тензорный параллелизм бенча ОТДЕЛЬНО от NPROC: vLLM требует, чтобы TP делил
 # число голов внимания (32), поэтому TP=3 не стартует — 2 или 4, не 3.
@@ -50,9 +51,9 @@ BENCH_DATASET="${BENCH_DATASET:-SALT-NLP/Design2Code-hf}"
 BENCH_N="${BENCH_N:-484}"
 DRY_RUN="${DRY_RUN:-0}"
 
-# Эффективный батч = bs * accum * NPROC. Держим его ~16 (на 1000 примерах при
-# 64 выходит 46 шагов оптимизатора на 3 эпохи — для сходимости мало), поэтому
-# accum считаем от числа карт, а не берём из конфига.
+# Эффективный батч = bs * accum * NPROC. Держим ~16: на 1000 примерах и одной
+# эпохе это 62 шага оптимизатора, при батче из конфига (64) было бы 15 — учить
+# нечему. accum поэтому считаем от числа карт, а не берём из конфига.
 MICRO_BS=4
 ACCUM=$(( 16 / (MICRO_BS * NPROC) )); (( ACCUM < 1 )) && ACCUM=1
 EFF_BATCH=$(( MICRO_BS * ACCUM * NPROC ))
@@ -71,7 +72,23 @@ run()  { if [[ "$DRY_RUN" == "1" ]]; then echo "  DRY: $*" >&3; return 0; fi; "$
 
 # ---------------------------------------------------------------- проверки --
 # Лучше упасть здесь за секунду, чем через 11 часов обнаружить пустой ClearML.
-[[ -d "$DATA_DIR/$DATASET_NAME" ]] || { say "НЕТ датасета: $DATA_DIR/$DATASET_NAME"; exit 1; }
+DS_PATH="$DATA_DIR/$DATASET_NAME"
+[[ -d "$DS_PATH" ]] || { say "НЕТ датасета: $DS_PATH"; exit 1; }
+
+# Валидационный сплит: без него train_sft молча выключает eval_strategy (только
+# строчка в логе), и eval_loss по ходу обучения считаться не будет — а именно
+# он показывает переобучение раньше, чем бенч. Проверяем ЗАРАНЕЕ.
+EVAL_SPLIT="${EVAL_SPLIT:-validation}"
+if [[ -d "$DS_PATH/$EVAL_SPLIT" ]]; then
+  say "сплит '$EVAL_SPLIT' на месте — eval_loss будет считаться по ходу обучения"
+else
+  say "ВНИМАНИЕ: в $DS_PATH нет сплита '$EVAL_SPLIT'."
+  say "  Есть: $(ls "$DS_PATH" 2>/dev/null | tr '\n' ' ')"
+  say "  eval_loss считаться НЕ БУДЕТ. Сделать разрез:"
+  say "    Data/make_split.py $DS_PATH <OUT> --val-frac 0.05"
+  say "  Продолжить всё равно: ALLOW_NO_EVAL=1 ./run_pilot.sh"
+  [[ "${ALLOW_NO_EVAL:-0}" == "1" ]] || exit 1
+fi
 docker image inspect sft >/dev/null 2>&1 || { say "НЕТ образа sft — собери: cd SFT && docker build -t sft ."; exit 1; }
 if [[ "${SKIP_BENCH:-0}" != "1" ]]; then
   docker image inspect "$BENCH_IMAGE" >/dev/null 2>&1 || {
@@ -113,7 +130,8 @@ esac
 
 # Микробатч 4, а не 8: по замерам (SFT/THROUGHPUT.md) bs4 даёт 2655 ток/с
 # против 1370 у bs8. accum считается выше от числа карт.
-COMMON_ARGS="--num_train_epochs 3 --per_device_train_batch_size $MICRO_BS \
+# num_train_epochs НЕ переопределяем — берётся из конфига (там 1 эпоха).
+COMMON_ARGS="--per_device_train_batch_size $MICRO_BS \
 --gradient_accumulation_steps $ACCUM --report_to clearml"
 
 say "каталог: $RESULT_DIR"
