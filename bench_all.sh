@@ -39,6 +39,25 @@ LOGS="$RESULT_DIR/logs"; mkdir -p "$LOGS"
 REPORT="$RESULT_DIR/REPORT-bench.txt"
 say() { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$REPORT"; }
 
+# train_sft.py дописывает к output_dir имя рана (train_sft.py:167), поэтому веса
+# лежат не в E<N>/, а в E<N>/<config>_s42_<дата>/. Ищем каталог с весами: сперва
+# сам OUT, иначе самый свежий подкаталог с config.json или adapter_config.json.
+resolve_weights() {
+  local dir="$1"
+  if [[ -f "$dir/config.json" || -f "$dir/adapter_config.json" ]]; then
+    echo "$dir"; return 0
+  fi
+  local sub
+  # ls -dt: свежие первыми, если ранов в каталоге почему-то несколько
+  for sub in $(ls -dt "$dir"/*/ 2>/dev/null); do
+    sub="${sub%/}"
+    if [[ -f "$sub/config.json" || -f "$sub/adapter_config.json" ]]; then
+      echo "$sub"; return 0
+    fi
+  done
+  return 1
+}
+
 # ------------------------------------------------- ждём конца обучения ------
 if [[ "${NOWAIT:-0}" != "1" ]]; then
   if ! grep -q "очередь закончена" "$RESULT_DIR/REPORT.txt" 2>/dev/null; then
@@ -81,16 +100,22 @@ for OUT in "$RESULT_DIR"/E[0-9]*; do
            | head -1 | grep -o '[0-9]*')
   PIXELS="${PIXELS:-$DEFAULT_PIXELS}"
 
+  WEIGHTS=$(resolve_weights "$OUT") || {
+    say "$EID: весов нет ни в $EID/, ни в подкаталогах — пропускаю"; continue; }
+  [[ "$WEIGHTS" != "$OUT" ]] && say "$EID: веса в $(basename "$WEIGHTS")/"
+
   # LoRA -> нужен мердж; full-FT чекпоинт vLLM грузит напрямую.
-  MODEL="$OUT"
-  if [[ -f "$OUT/adapter_config.json" ]]; then
+  MODEL="$WEIGHTS"
+  if [[ -f "$WEIGHTS/adapter_config.json" ]]; then
     MODEL="$RESULT_DIR/$EID-merged"
     if [[ -f "$MODEL/config.json" ]]; then
       say "$EID: слитая модель уже есть"
     else
       say "$EID: мержу LoRA-адаптер..."
+      # пути внутри контейнера: $RESULT_DIR смонтирован как /out
+      REL="${WEIGHTS#$RESULT_DIR/}"
       env DATA_DIR="$DATA_DIR" HF_CACHE="$HF_CACHE" OUT_DIR="$RESULT_DIR" GPUS="$GPUS" \
-        "$REPO/SFT/run.sh" python -m scripts.merge_lora "/out/$EID" "/out/$EID-merged" \
+        "$REPO/SFT/run.sh" python -m scripts.merge_lora "/out/$REL" "/out/$EID-merged" \
         > "$LOGS/$EID.merge.log" 2>&1
       rc=$?
       say "$EID merge_lora: rc=$rc"
