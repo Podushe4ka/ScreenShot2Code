@@ -28,7 +28,11 @@ BENCH_TP="${BENCH_TP:-2}"
 BENCH_N="${BENCH_N:-484}"
 TARGET_3K="${TARGET_3K:-3000}"
 N_WORKERS="${N_WORKERS:-96}"
-FREE_MB="${FREE_MB:-2000}"        # карта считается свободной, если занято меньше
+# Порог занятости карты, при котором считаем её доступной. Разный по типу
+# работы: бенч поднимает vLLM с gpu_memory_utilization 0.5 (~40 ГБ) и спокойно
+# уживается с чужим лёгким сервером на 19 ГБ, а full-FT обучению нужны все 80.
+BENCH_FREE_MB="${BENCH_FREE_MB:-25000}"
+TRAIN_FREE_MB="${TRAIN_FREE_MB:-5000}"
 
 LOG="$BASE/NIGHT.log"
 mkdir -p "$BASE"
@@ -74,6 +78,7 @@ say "образ проверен: tracking.py на месте"
 
 # --------------------------------------------------------- ждём GPU -------
 wait_for_gpus() {
+  local limit="${1:-$TRAIN_FREE_MB}"
   local waited=0
   while true; do
     local busy=0
@@ -81,17 +86,17 @@ wait_for_gpus() {
       local used
       used=$(nvidia-smi --id="$g" --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null)
       [[ -z "$used" ]] && used=999999
-      (( used > FREE_MB )) && busy=1
+      (( used > limit )) && busy=1
     done
     (( busy == 0 )) && break
-    (( waited % 10 == 0 )) && say "жду свободных GPU $GPU_IDS (прошло $waited мин)"
+    (( waited % 10 == 0 )) && say "жду GPU $GPU_IDS (занято меньше ${limit} МБ), прошло $waited мин"
     sleep 60; waited=$((waited+1))
   done
   say "GPU $GPU_IDS свободны — поехали"
 }
 
 phase "ФАЗА 1: бенч чекпоинтов 1k"
-wait_for_gpus
+wait_for_gpus "$BENCH_FREE_MB"
 if [[ -d "$CKPT_1K" ]]; then
   DATA_DIR="$DATA_DIR" HF_CACHE="$HF_CACHE" GPUS="$GPUS" \
   BENCH_TP="$BENCH_TP" BENCH_N="$BENCH_N" NOWAIT=1 \
@@ -131,7 +136,7 @@ fi
 say "val-сплит на месте"
 
 phase "ФАЗА 3: шесть экспериментов на ${TARGET_3K} примерах"
-wait_for_gpus
+wait_for_gpus "$TRAIN_FREE_MB"
 # SKIP_BENCH=1 намеренно: в run_pilot.sh осталась старая ошибка с путём к
 # весам (ищет их в E<N>/, а они в E<N>/<run_name>/). Бенчит потом bench_all.sh,
 # где путь разрешается правильно.
@@ -142,7 +147,7 @@ GPUS="$GPUS" NPROC="$NPROC" WAVE=all SKIP_BENCH=1 \
 say "ФАЗА 3 закончена (rc=${PIPESTATUS[0]})"
 
 phase "ФАЗА 4: бенч чекпоинтов ${TARGET_3K}"
-wait_for_gpus
+wait_for_gpus "$BENCH_FREE_MB"
 DATA_DIR="$DATA_DIR" HF_CACHE="$HF_CACHE" GPUS="$GPUS" \
 BENCH_TP="$BENCH_TP" BENCH_N="$BENCH_N" NOWAIT=1 \
   "$REPO/bench_all.sh" "$CKPT_3K" 2>&1 | tee -a "$LOG"

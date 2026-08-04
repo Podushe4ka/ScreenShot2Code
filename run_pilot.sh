@@ -148,6 +148,14 @@ for row in "${EXPERIMENTS[@]}"; do
   OUT_HOST="$RESULT_DIR/$EID"
   say "=== $EID ($SID) — $(basename "$CONFIG") $EXTRA | ${PIXELS} px"
 
+  # Уже обученное пропускаем: после сбоя перезапуск не должен переделывать
+  # часы работы. Веса лежат во вложенном каталоге рана (train_sft.py:167),
+  # поэтому смотрим и вложенные. FORCE=1 — обучить заново поверх.
+  if [[ "${FORCE:-0}" != "1" ]] && compgen -G "$OUT_HOST/*/config.json" > /dev/null 2>&1      || [[ "${FORCE:-0}" != "1" ]] && compgen -G "$OUT_HOST/*/adapter_config.json" > /dev/null 2>&1; then
+    say "$EID уже обучен — пропускаю (FORCE=1 чтобы переобучить)"
+    rule; continue
+  fi
+
   # ------------------------------------------------------------- обучение --
   # OUT_DIR монтируется в /out, туда же трейнер кладёт clearml_task.json —
   # он и свяжет этот ран с будущим прогоном бенча.
