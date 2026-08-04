@@ -46,6 +46,12 @@ say() { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$REPORT"; }
 # train_sft.py дописывает к output_dir имя рана (train_sft.py:167), поэтому веса
 # лежат не в E<N>/, а в E<N>/<config>_s42_<дата>/. Ищем каталог с весами: сперва
 # сам OUT, иначе самый свежий подкаталог с config.json или adapter_config.json.
+# Слитая модель готова, только если рядом с весами лежит процессор. Имя файла
+# разное у разных семейств, поэтому принимаем любое из двух.
+merged_complete() {
+  [[ -f "$1/processor_config.json" || -f "$1/preprocessor_config.json" ]]
+}
+
 resolve_weights() {
   local dir="$1"
   if [[ -f "$dir/config.json" || -f "$dir/adapter_config.json" ]]; then
@@ -113,17 +119,18 @@ for OUT in "$RESULT_DIR"/E[0-9]*; do
   if [[ -f "$WEIGHTS/adapter_config.json" ]]; then
     MODEL="$RESULT_DIR/$EID-merged"
     # Полнота, а не только наличие: merge_lora пишет веса, а процессор кладёт
-    # ПОСЛЕ них. Если мердж прервали посередине, config.json уже есть, а
-    # preprocessor_config.json ещё нет — vLLM на таком каталоге падает с
-    # "Can't load image processor". Такой обрубок домерживаем заново.
-    if [[ -f "$MODEL/config.json" && -f "$MODEL/preprocessor_config.json" ]]; then
+    # ПОСЛЕ них. Прерванный мердж оставляет config.json без процессора, и vLLM
+    # падает с "Can't load image processor". Имя файла процессора зависит от
+    # семейства: Qwen3.5 пишет processor_config.json, старые VL-модели —
+    # preprocessor_config.json. Принимаем оба.
+    if [[ -f "$MODEL/config.json" ]] && merged_complete "$MODEL"; then
       say "$EID: слитая модель уже есть"
     elif [[ -d "$MODEL" ]]; then
       say "$EID: слитая модель неполная — мержу заново"
       docker run --rm -v /mnt/storage-1:/storage --entrypoint rm sft -rf \
         "/storage/${MODEL#/mnt/storage-1/}" 2>/dev/null
     fi
-    if [[ ! -f "$MODEL/config.json" || ! -f "$MODEL/preprocessor_config.json" ]]; then
+    if [[ ! -f "$MODEL/config.json" ]] || ! merged_complete "$MODEL"; then
       say "$EID: мержу LoRA-адаптер..."
       # пути внутри контейнера: $RESULT_DIR смонтирован как /out
       REL="${WEIGHTS#$RESULT_DIR/}"
@@ -133,7 +140,7 @@ for OUT in "$RESULT_DIR"/E[0-9]*; do
       rc=$?
       say "$EID merge_lora: rc=$rc"
       [[ $rc -ne 0 ]] && { say "$EID пропущен (лог: $LOGS/$EID.merge.log)"; continue; }
-      if [[ ! -f "$MODEL/preprocessor_config.json" ]]; then
+      if ! merged_complete "$MODEL"; then
         say "$EID: мердж вернул 0, но процессора нет — в бенч не отдаю"
         continue
       fi
