@@ -61,6 +61,9 @@ args=(
   --gpus "$GPUS"
   --rm
   --shm-size="$SHM_SIZE"
+  # json-логи docker дублируют вывод, который уже пишется в файл прогона,
+  # а лежат на локальном диске — на a100-2 он почти полон.
+  --log-opt max-size=20m --log-opt max-file=2
   -v "$MOUNT_SRC":/workspace
   -v "$CONTAINER_HOME":/container-home
   -v "$HF_CACHE":/hf-cache
