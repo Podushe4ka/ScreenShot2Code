@@ -104,7 +104,8 @@ fi
 # локальный диск. На a100-2 там считанные гигабайты, поэтому уводим на storage:
 #  - vLLM/Triton/inductor кэши компиляции — в смонтированный HF-кэш (общий
 #    между прогонами, не компилируется заново каждый раз);
-#  - /tmp (Chromium рендерит сотни страниц) — в каталог прогона;
+#  - /tmp НЕ трогаем: Chromium падает с "Target crashed", если его временные
+#    файлы лежат на сетевом диске (проверено). Они мелкие и удаляются сразу;
 #  - json-логи docker дублируют вывод, который мы и так пишем в файл, — режем.
 # XDG_CACHE_HOME здесь НЕЛЬЗЯ трогать: Playwright ищет браузеры в
 # $XDG_CACHE_HOME/ms-playwright, а они лежат в образе по /root/.cache.
@@ -116,10 +117,8 @@ cache_args=(
     -e VLLM_CACHE_ROOT=/root/.cache/huggingface/_vllm
     -e TRITON_CACHE_DIR=/root/.cache/huggingface/_triton
     -e TORCHINDUCTOR_CACHE_DIR=/root/.cache/huggingface/_inductor
-    -e TMPDIR=/app/output/_tmp
     --log-opt max-size=20m --log-opt max-file=2
 )
-mkdir -p "$HOST_OUTDIR/_tmp"
 
 docker run \
     --name "$CONTAINER_NAME" \
