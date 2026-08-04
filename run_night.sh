@@ -110,10 +110,12 @@ phase "ФАЗА 2: генерация датасета на $TARGET_3K прим�
 if [[ -d "$DATA_DIR/webcode2m_${TARGET_3K}_split/train" ]]; then
   say "датасет уже есть — пропускаю генерацию"
 else
+  # TMPDIR НЕ переопределяем: Chromium падает с "Target crashed", если его
+  # временные файлы на сетевом диске. Ровно это уронило первую попытку —
+  # конвертер не прошёл preflight-проверку рендера.
   say "конвертация (playwright, $N_WORKERS воркеров)..."
   docker run --rm -v "$REPO":/w -v /mnt/storage-1:/storage --shm-size=2g \
     -e HF_HOME=/storage/Screenshot2Code/hf_cache \
-    -e TMPDIR=/storage/Screenshot2Code/tmp \
     -w /w/Data/webcode2m --entrypoint python3 design2code-bench:latest \
     convert_parallel.py --target "$TARGET_3K" --n-workers "$N_WORKERS" \
     --out "/storage/Screenshot2Code/data/webcode2m_$TARGET_3K" \
