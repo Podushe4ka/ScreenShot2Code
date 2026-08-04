@@ -106,8 +106,13 @@ fi
 #    между прогонами, не компилируется заново каждый раз);
 #  - /tmp (Chromium рендерит сотни страниц) — в каталог прогона;
 #  - json-логи docker дублируют вывод, который мы и так пишем в файл, — режем.
+# XDG_CACHE_HOME здесь НЕЛЬЗЯ трогать: Playwright ищет браузеры в
+# $XDG_CACHE_HOME/ms-playwright, а они лежат в образе по /root/.cache.
+# Переопределение уводило поиск в пустой каталог, Chromium не запускался, и
+# render.py молча подставлял белую картинку вместо скриншота — метрики
+# получались нулевыми, а pred и ref совпадали побайтово.
 cache_args=(
-    -e XDG_CACHE_HOME=/root/.cache/huggingface/_xdg
+    -e PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
     -e VLLM_CACHE_ROOT=/root/.cache/huggingface/_vllm
     -e TRITON_CACHE_DIR=/root/.cache/huggingface/_triton
     -e TORCHINDUCTOR_CACHE_DIR=/root/.cache/huggingface/_inductor
