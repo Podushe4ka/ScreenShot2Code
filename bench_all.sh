@@ -112,9 +112,18 @@ for OUT in "$RESULT_DIR"/E[0-9]*; do
   MODEL="$WEIGHTS"
   if [[ -f "$WEIGHTS/adapter_config.json" ]]; then
     MODEL="$RESULT_DIR/$EID-merged"
-    if [[ -f "$MODEL/config.json" ]]; then
+    # Полнота, а не только наличие: merge_lora пишет веса, а процессор кладёт
+    # ПОСЛЕ них. Если мердж прервали посередине, config.json уже есть, а
+    # preprocessor_config.json ещё нет — vLLM на таком каталоге падает с
+    # "Can't load image processor". Такой обрубок домерживаем заново.
+    if [[ -f "$MODEL/config.json" && -f "$MODEL/preprocessor_config.json" ]]; then
       say "$EID: слитая модель уже есть"
-    else
+    elif [[ -d "$MODEL" ]]; then
+      say "$EID: слитая модель неполная — мержу заново"
+      docker run --rm -v /mnt/storage-1:/storage --entrypoint rm sft -rf \
+        "/storage/${MODEL#/mnt/storage-1/}" 2>/dev/null
+    fi
+    if [[ ! -f "$MODEL/config.json" || ! -f "$MODEL/preprocessor_config.json" ]]; then
       say "$EID: мержу LoRA-адаптер..."
       # пути внутри контейнера: $RESULT_DIR смонтирован как /out
       REL="${WEIGHTS#$RESULT_DIR/}"
@@ -124,6 +133,10 @@ for OUT in "$RESULT_DIR"/E[0-9]*; do
       rc=$?
       say "$EID merge_lora: rc=$rc"
       [[ $rc -ne 0 ]] && { say "$EID пропущен (лог: $LOGS/$EID.merge.log)"; continue; }
+      if [[ ! -f "$MODEL/preprocessor_config.json" ]]; then
+        say "$EID: мердж вернул 0, но процессора нет — в бенч не отдаю"
+        continue
+      fi
     fi
   fi
 
