@@ -35,7 +35,13 @@ mkdir -p "$BASE"
 say() { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
 phase() { echo | tee -a "$LOG"; say "############ $* ############"; }
 
+# Кэши компиляции (Triton, inductor) и временные файлы — на storage:
+# локальный диск a100-2 забит, там всего несколько ГБ.
+export CONTAINER_HOME="${CONTAINER_HOME:-$BASE/container-home}"
+mkdir -p "$CONTAINER_HOME" "$BASE/tmp"
+
 say "СТАРТ ночной цепочки. Лог: $LOG"
+say "кэши компиляции: $CONTAINER_HOME (локальный диск почти полон)"
 say "данные: $DATA_DIR | кэш: $HF_CACHE | чекпоинты: $CKPT_ROOT"
 say "GPU: $GPUS | бенч TP=$BENCH_TP, N=$BENCH_N | 3k: target=$TARGET_3K, workers=$N_WORKERS"
 
@@ -86,6 +92,8 @@ if [[ -d "$DATA_DIR/webcode2m_${TARGET_3K}_split/train" ]]; then
 else
   say "конвертация (playwright, $N_WORKERS воркеров)..."
   docker run --rm -v "$REPO":/w -v /mnt/storage-1:/storage --shm-size=2g \
+    -e HF_HOME=/storage/Screenshot2Code/hf_cache \
+    -e TMPDIR=/storage/Screenshot2Code/tmp \
     -w /w/Data/webcode2m --entrypoint python3 design2code-bench:latest \
     convert_parallel.py --target "$TARGET_3K" --n-workers "$N_WORKERS" \
     --out "/storage/Screenshot2Code/data/webcode2m_$TARGET_3K" \
