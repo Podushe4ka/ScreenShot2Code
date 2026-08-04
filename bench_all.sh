@@ -33,6 +33,10 @@ BENCH_TP="${BENCH_TP:-2}"
 BENCH_IMAGE="${BENCH_IMAGE:-design2code-bench:latest}"
 BENCH_DATASET="${BENCH_DATASET:-SALT-NLP/Design2Code-hf}"
 BENCH_N="${BENCH_N:-484}"
+# Доля памяти карты под vLLM. Дефолт скрипта бенча — 0.5, то есть половина
+# карты простаивает и её может занять чужой процесс. Берём почти всю: и KV-кэш
+# больше (быстрее прогон), и карта занята — рядом никто не влезет.
+GPU_UTIL="${GPU_UTIL:-0.90}"
 DEFAULT_PIXELS=2097152
 
 LOGS="$RESULT_DIR/logs"; mkdir -p "$LOGS"
@@ -83,7 +87,7 @@ if ! docker run --rm "$BENCH_IMAGE" --help 2>&1 | grep -q -- --max-pixels; then
 fi
 [[ -n "${CLEARML_API_ACCESS_KEY:-}" ]] || say "ВНИМАНИЕ: кред ClearML нет — метрики будут только в summary.json"
 
-say "каталог: $RESULT_DIR | GPU: $GPUS | TP: $BENCH_TP"
+say "каталог: $RESULT_DIR | GPU: $GPUS | TP: $BENCH_TP | память карты: $GPU_UTIL"
 
 for OUT in "$RESULT_DIR"/E[0-9]*; do
   [[ -d "$OUT" ]] || continue
@@ -137,6 +141,7 @@ for OUT in "$RESULT_DIR"/E[0-9]*; do
         --n-samples "$BENCH_N" --batch-size "$BENCH_N" \
         --max-pixels "$PIXELS" \
         --tensor-parallel-size "$BENCH_TP" \
+        --gpu-memory-utilization "$GPU_UTIL" \
       > "$LOGS/$EID.bench.log" 2>&1
   say "$EID бенч: rc=$?, $(( (SECONDS-start)/60 )) мин"
 done
