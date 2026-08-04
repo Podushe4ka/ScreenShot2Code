@@ -39,6 +39,11 @@ BENCH_N="${BENCH_N:-484}"
 # единицы сэмплов (замерено: 33 из 484 против 484 из 484 при 0.5).
 # Половина карты — то значение, на котором сняты базовые числа.
 GPU_UTIL="${GPU_UTIL:-0.50}"
+# Лимит генерации. Дефолт скрипта бенча — 8192, и на нём обрезается до 60%
+# страниц (у E3 292 из 484): длинный HTML не помещается, метрики занижаются
+# незаслуженно. 16384 влезает в max-model-len 24384 вместе с картинкой
+# (2048 визуальных токенов, у 3.93 Мп — 3840) и промптом.
+BENCH_MAX_NEW="${BENCH_MAX_NEW:-16384}"
 DEFAULT_PIXELS=2097152
 
 LOGS="$RESULT_DIR/logs"; mkdir -p "$LOGS"
@@ -95,7 +100,7 @@ if ! docker run --rm "$BENCH_IMAGE" --help 2>&1 | grep -q -- --max-pixels; then
 fi
 [[ -n "${CLEARML_API_ACCESS_KEY:-}" ]] || say "ВНИМАНИЕ: кред ClearML нет — метрики будут только в summary.json"
 
-say "каталог: $RESULT_DIR | GPU: $GPUS | TP: $BENCH_TP | память карты: $GPU_UTIL"
+say "каталог: $RESULT_DIR | GPU: $GPUS | TP: $BENCH_TP | память $GPU_UTIL | max_new_tokens $BENCH_MAX_NEW"
 
 for OUT in "$RESULT_DIR"/E[0-9]*; do
   [[ -d "$OUT" ]] || continue
@@ -164,6 +169,7 @@ for OUT in "$RESULT_DIR"/E[0-9]*; do
         --max-pixels "$PIXELS" \
         --tensor-parallel-size "$BENCH_TP" \
         --gpu-memory-utilization "$GPU_UTIL" \
+        --max-new-tokens "$BENCH_MAX_NEW" \
       > "$LOGS/$EID.bench.log" 2>&1
   say "$EID бенч: rc=$?, $(( (SECONDS-start)/60 )) мин"
 done
