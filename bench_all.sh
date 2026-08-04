@@ -45,6 +45,9 @@ GPU_UTIL="${GPU_UTIL:-0.50}"
 # (2048 визуальных токенов, у 3.93 Мп — 3840) и промптом.
 BENCH_MAX_NEW="${BENCH_MAX_NEW:-16384}"
 DEFAULT_PIXELS=2097152
+# База для сравнения — тот же прогон, что и дообученные: одинаковый лимит
+# токенов и пиксель-бюджет, иначе дельта к базе ничего не значит.
+BASE_MODEL="${BASE_MODEL:-Qwen/Qwen3.5-4B}"
 
 LOGS="$RESULT_DIR/logs"; mkdir -p "$LOGS"
 REPORT="$RESULT_DIR/REPORT-bench.txt"
@@ -102,10 +105,26 @@ fi
 
 say "каталог: $RESULT_DIR | GPU: $GPUS | TP: $BENCH_TP | память $GPU_UTIL | max_new_tokens $BENCH_MAX_NEW"
 
+# --- база (без обучения) ---
+if [[ -n "$BASE_MODEL" && ! -f "$RESULT_DIR/E0-base-bench/summary.json" ]]; then
+  say "E0: база $BASE_MODEL, ${DEFAULT_PIXELS} px"
+  start=$SECONDS
+  env IMAGE_TAG="$BENCH_IMAGE" HOST_OUTDIR="$RESULT_DIR/E0-base-bench" \
+      HOST_HF_CACHE="$HF_CACHE" CONTAINER_NAME="bench-E0" GPUS="$GPUS" \
+      CLEARML_TAGS="E0,base,pilot1k" \
+      "$REPO/Evaluation/run.sh" --model "$BASE_MODEL" \
+        --hf-dataset "$BENCH_DATASET" --hf-config default --hf-split train \
+        --n-samples "$BENCH_N" --batch-size "$BENCH_N" \
+        --max-pixels "$DEFAULT_PIXELS" --tensor-parallel-size "$BENCH_TP" \
+        --gpu-memory-utilization "$GPU_UTIL" --max-new-tokens "$BENCH_MAX_NEW" \
+      > "$LOGS/E0.bench.log" 2>&1
+  say "E0 бенч: rc=$?, $(( (SECONDS-start)/60 )) мин"
+fi
+
 for OUT in "$RESULT_DIR"/E[0-9]*; do
   [[ -d "$OUT" ]] || continue
   EID="$(basename "$OUT")"
-  case "$EID" in *-merged|*-bench) continue ;; esac
+  case "$EID" in *-merged|*-bench|*-bench-*) continue ;; esac
   if [[ -n "${ONLY:-}" && " $ONLY " != *" $EID "* ]]; then continue; fi
 
   if [[ -f "$RESULT_DIR/$EID-bench/summary.json" ]]; then
