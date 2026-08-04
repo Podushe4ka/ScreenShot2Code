@@ -33,7 +33,22 @@ FREE_MB="${FREE_MB:-2000}"        # карта считается свободн
 LOG="$BASE/NIGHT.log"
 mkdir -p "$BASE"
 say() { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
-phase() { echo | tee -a "$LOG"; say "############ $* ############"; }
+phase() { echo | tee -a "$LOG"; say "############ $* ############"; check_disk; }
+
+# Локальный диск a100-2 почти полон. Все контейнеры переведены на storage
+# (проверено замером), но если что-то всё же начнёт писать на / — лучше
+# увидеть это в логе на границе фазы, чем словить «no space left» в середине.
+MIN_FREE_MB="${MIN_FREE_MB:-500}"
+check_disk() {
+  local root_mb stor_gb
+  root_mb=$(df --output=avail / 2>/dev/null | tail -1); root_mb=$((root_mb/1024))
+  stor_gb=$(df --output=avail /mnt/storage-1 2>/dev/null | tail -1); stor_gb=$((stor_gb/1024/1024))
+  say "диск: / ${root_mb} МБ | storage ${stor_gb} ГБ"
+  if (( root_mb < MIN_FREE_MB )); then
+    say "СТОП: на локальном диске осталось ${root_mb} МБ — docker сломается, дальше не иду"
+    exit 1
+  fi
+}
 
 # Кэши компиляции (Triton, inductor) и временные файлы — на storage:
 # локальный диск a100-2 забит, там всего несколько ГБ.
