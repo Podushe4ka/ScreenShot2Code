@@ -263,7 +263,26 @@ def iter_dataset_batches(hf_dataset: str, n_samples: int, batch_size: int, seed:
     (при том же buffer_size) - см. https://huggingface.co/docs/datasets - так
     что skip=N всегда пропускает те же самые N сэмплов, что уже обработаны.
     """
-    from datasets import load_dataset
+    import os
+    from datasets import load_dataset, load_from_disk
+
+    # Локальный датасет (load_from_disk) — для sanity-тестов, где train-сет и
+    # bench-сет ДОЛЖНЫ быть одними и теми же сэмплами. Ожидаются колонки
+    # 'image'/'text' (формат Design2Code); порядок берётся как есть, без shuffle.
+    if os.path.isdir(hf_dataset) and os.path.exists(os.path.join(hf_dataset, "dataset_info.json")):
+        print(f"[run_benchmark] Локальный датасет {hf_dataset} (без shuffle)...")
+        ds_local = load_from_disk(hf_dataset)
+        it = iter(ds_local)
+        for _ in range(skip):
+            next(it, None)
+        remaining = n_samples - skip
+        while remaining > 0:
+            batch = [x for x in (next(it, None) for _ in range(min(batch_size, remaining))) if x is not None]
+            if not batch:
+                return
+            yield batch
+            remaining -= len(batch)
+        return
 
     print(f"[run_benchmark] Открываю {hf_dataset} в streaming-режиме (skip={skip})...")
     ds_stream = load_dataset(hf_dataset, name=hf_config, split=hf_split, streaming=True)
