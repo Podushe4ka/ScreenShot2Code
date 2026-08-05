@@ -17,11 +17,20 @@
 #   ./run.sh --n-samples 70000 --batch-size 10000
 #   ./run.sh --n-samples 70000 --num-workers 4 --tensor-parallel-size 2
 #   ./run.sh --no-resume --n-samples 1000        # начать заново, игнорируя чекпоинт
+#   ./run.sh --model /mnt/storage-1/checkpoints/qwen3.5-9b-step12000 --n-samples 5000
+#                                                  # чекпоинт с общего диска (см. HOST_STORAGE ниже)
 #
 # Переменные окружения (можно переопределить перед вызовом):
 #   IMAGE_TAG      - какой образ запускать (по умолчанию design2code-bench:latest)
 #   HOST_OUTDIR    - куда на хосте класть результаты/чекпоинт (по умолчанию ./bench_results)
 #   HOST_HF_CACHE  - куда на хосте класть кэш HF моделей/датасетов (по умолчанию ./hf_cache)
+#   HOST_STORAGE   - путь к общему диску с чекпоинтами на ХОСТЕ (по умолчанию /mnt/storage-1).
+#                    Монтируется В КОНТЕЙНЕР ПО ТОМУ ЖЕ ПУТИ (см. -v ниже), read-only —
+#                    поэтому --model можно передавать с путём вида
+#                    /mnt/storage-1/checkpoints/<run>/<step> напрямую, без пересчёта пути
+#                    под контейнер. Если на хосте общий диск смонтирован не в /mnt/storage-1,
+#                    задайте HOST_STORAGE=<реальный путь> — путь ВНУТРИ контейнера всё равно
+#                    останется /mnt/storage-1, так что --model из примеров выше не меняется.
 #   GPUS           - какие GPU пробросить (по умолчанию all)
 #   CONTAINER_NAME - имя контейнера (по умолчанию design2code-bench)
 set -euo pipefail
@@ -31,10 +40,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_TAG="${IMAGE_TAG:-design2code-bench:latest}"
 HOST_OUTDIR="${HOST_OUTDIR:-$SCRIPT_DIR/bench_results}"
 HOST_HF_CACHE="${HOST_HF_CACHE:-$HOME/.cache/huggingface}"
+HOST_STORAGE="${HOST_STORAGE:-/mnt/storage-1}"
 GPUS="${GPUS:-all}"
 CONTAINER_NAME="${CONTAINER_NAME:-design2code-bench}"
 
 mkdir -p "$HOST_OUTDIR" "$HOST_HF_CACHE"
+
+# HOST_STORAGE монтируется, только если реально существует на хосте — иначе
+# либо чекпоинты берутся с HF hub (--model Qwen/Qwen3.5-9B как раньше), либо
+# пользователь ещё не примонтировал общий диск на хосте, и лучше явно
+# сообщить об этом, чем тихо стартовать без него и упасть непонятной
+# ошибкой "path not found" уже внутри vLLM.
+STORAGE_MOUNT_ARGS=()
+if [[ -d "$HOST_STORAGE" ]]; then
+    STORAGE_MOUNT_ARGS=(-v "$HOST_STORAGE:/mnt/storage-1:ro")
+else
+    echo "[run] Внимание: $HOST_STORAGE не найден на хосте — общий диск с чекпоинтами" >&2
+    echo "не будет примонтирован. Если --model указывает на /mnt/storage-1/..., это упадёт." >&2
+    echo "Если диск смонтирован в другом месте, задайте HOST_STORAGE=<путь>." >&2
+fi
 
 # Защита: --outdir всегда должен указывать на /app/output (единственный путь,
 # смонтированный volume-ом с хоста, см. -v ниже). Если пользователь передаст
@@ -64,6 +88,9 @@ fi
 echo "[run] Образ:        $IMAGE_TAG"
 echo "[run] outdir (хост): $HOST_OUTDIR  ->  /app/output (в контейнере)"
 echo "[run] HF cache:      $HOST_HF_CACHE  ->  /root/.cache/huggingface"
+if [[ ${#STORAGE_MOUNT_ARGS[@]} -gt 0 ]]; then
+    echo "[run] Storage:       $HOST_STORAGE  ->  /mnt/storage-1 (в контейнере, read-only)"
+fi
 echo "[run] GPU:           $GPUS"
 echo "[run] Аргументы скрипту: $* "
 echo
@@ -77,59 +104,34 @@ echo
 # --outdir всегда фиксирован на /app/output внутри контейнера (примонтирован
 # с хоста) - остальные аргументы (--n-samples, --batch-size, --model, и т.д.)
 # прозрачно прокидываются как есть в run_benchmark_batched.py через "$@".
-# Креды ClearML пробрасываем, только если они есть в окружении: без них
-# tracking.py тихо становится no-op, и прогон уходит «в никуда» — метрики
-# остаются лежать в summary.json, но в UI их нет.
-env_args=()
+# STORAGE_MOUNT_ARGS - монтирование общего диска с чекпоинтами (см. выше),
+# пустой массив если HOST_STORAGE не существовал на хосте - `"${arr[@]}"` с
+# пустым массивом безопасен под `set -u` начиная с Bash 4.4+.
+# Креды ClearML пробрасываем, только если есть в окружении: без них tracking.py
+# тихо no-op'ит. HOST_MODEL_DIR — чекпоинт вне HF-кэша и вне /mnt/storage-1.
+ENV_ARGS=()
 for var in CLEARML_API_ACCESS_KEY CLEARML_API_SECRET_KEY CLEARML_API_HOST \
            CLEARML_WEB_HOST CLEARML_FILES_HOST CLEARML_PROJECT CLEARML_TAGS \
            CLEARML_TRAIN_TASK CLEARML_DISABLE HF_TOKEN; do
-    if [[ -n "${!var:-}" ]]; then
-        env_args+=(-e "$var=${!var}")
-    fi
+    [[ -n "${!var:-}" ]] && ENV_ARGS+=(-e "$var=${!var}")
 done
-if [[ -z "${CLEARML_API_ACCESS_KEY:-}" && "${CLEARML_DISABLE:-}" != "1" ]]; then
-    echo "[run] ВНИМАНИЕ: CLEARML_API_ACCESS_KEY не задан — трекинг будет выключен."
-fi
-
-# Чекпоинт может лежать вне HF-кэша (например, каталог обучения) — тогда его
-# надо примонтировать отдельно, иначе внутри контейнера пути просто нет.
-mount_args=()
+MODEL_MOUNT=()
 if [[ -n "${HOST_MODEL_DIR:-}" ]]; then
-    mount_args+=(-v "$HOST_MODEL_DIR:$HOST_MODEL_DIR:ro")
-    echo "[run] модель (хост): $HOST_MODEL_DIR (примонтирована как есть)"
+    MODEL_MOUNT=(-v "$HOST_MODEL_DIR:$HOST_MODEL_DIR:ro")
 fi
 
-# Всё, что контейнер пишет мимо смонтированных путей, ложится в слой на
-# локальный диск. На a100-2 там считанные гигабайты, поэтому уводим на storage:
-#  - vLLM/Triton/inductor кэши компиляции — в смонтированный HF-кэш (общий
-#    между прогонами, не компилируется заново каждый раз);
-#  - /tmp НЕ трогаем: Chromium падает с "Target crashed", если его временные
-#    файлы лежат на сетевом диске (проверено). Они мелкие и удаляются сразу;
-#  - json-логи docker дублируют вывод, который мы и так пишем в файл, — режем.
-# XDG_CACHE_HOME здесь НЕЛЬЗЯ трогать: Playwright ищет браузеры в
-# $XDG_CACHE_HOME/ms-playwright, а они лежат в образе по /root/.cache.
-# Переопределение уводило поиск в пустой каталог, Chromium не запускался, и
-# render.py молча подставлял белую картинку вместо скриншота — метрики
-# получались нулевыми, а pred и ref совпадали побайтово.
-cache_args=(
-    -e PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
-    -e VLLM_CACHE_ROOT=/root/.cache/huggingface/_vllm
-    -e TRITON_CACHE_DIR=/root/.cache/huggingface/_triton
-    -e TORCHINDUCTOR_CACHE_DIR=/root/.cache/huggingface/_inductor
-    --log-opt max-size=20m --log-opt max-file=2
-)
-
+# --shm-size: Chromium под нагрузкой нескольких воркеров падает с "Target crashed"
+# при малом /dev/shm. 1g не хватало на 16 воркеров и высокие страницы — берём 4g.
 docker run \
     --name "$CONTAINER_NAME" \
     --gpus "$GPUS" \
-    --shm-size=1g \
+    --shm-size="${SHM_SIZE:-4g}" \
     --ipc=host \
-    "${cache_args[@]}" \
     -v "$HOST_OUTDIR:/app/output" \
     -v "$HOST_HF_CACHE:/root/.cache/huggingface" \
-    "${mount_args[@]}" \
-    "${env_args[@]}" \
+    "${STORAGE_MOUNT_ARGS[@]}" \
+    "${MODEL_MOUNT[@]}" \
+    "${ENV_ARGS[@]}" \
     "$IMAGE_TAG" \
     --outdir /app/output \
     "$@"

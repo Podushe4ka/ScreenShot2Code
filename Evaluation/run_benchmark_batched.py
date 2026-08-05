@@ -86,48 +86,73 @@ METRIC_KEYS = ["block_match", "text", "position", "color", "clip",
                "final_score", "final_score_arithmetic"]
 
 
+# =============================================================================
+# CLIP: один общий батчующий GPU-процесс вместо копии модели в каждом воркере
+# =============================================================================
+# Раньше metrics.py грузил CLIP при импорте, а render_and_score_one
+# выполнялся в ProcessPoolExecutor(--num-workers) — то есть до num_workers
+# отдельных копий CLIP на GPU, каждая гоняющая encode_image с batch_size=1.
+# Теперь одна копия модели живёт в отдельном процессе (clip_server.ClipServer,
+# запускается один раз на весь прогон, не на батч), а CPU-воркеры шлют туда
+# запросы через очередь и получают результат по приватному Pipe — сервер сам
+# группирует прилетевшие запросы в под-батчи по --clip-batch-size и делает
+# один forward на под-батч. См. подробный docstring в clip_server.py.
+#
+# _clip_request_queue передаётся в каждый воркер-процесс через initializer
+# ProcessPoolExecutor (не как аргумент submit — Queue не сериализуется через
+# pickle на каждый вызов, а вот один раз при старте процесса через initargs
+# работает штатно для spawn-контекста).
+def _worker_init(clip_request_queue):
+    from clip_server import ClipClient
+    import metrics
+    metrics.set_clip_client(ClipClient(clip_request_queue))
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Qwen3.5-9B на Design2Code, батчами по HF-streaming (для 10k-100k+ сэмплов).")
-    parser.add_argument("--model", default="Qwen/Qwen2.5-VL-7B-Instruct")
+    parser.add_argument("--model", default="Qwen/Qwen3.5-9B")
     parser.add_argument("--n-samples", type=int, default=70_000,
                          help="Сколько сэмплов всего обработать (по всем батчам).")
     parser.add_argument("--batch-size", type=int, default=10_000,
                          help="Размер одного динамического батча из HF (генерация+рендер+метрики "
                               "прогоняются на нём целиком, потом файлы батча удаляются).")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--train-task-id", default=None,
-                        help="id ClearML-задачи обучения, из которой взят чекпоинт. "
-                             "Обычно не нужен: подхватывается из clearml_task.json "
-                             "рядом с весами. Указывай, если веса копировали руками.")
     parser.add_argument("--max-new-tokens", type=int, default=8192)
     parser.add_argument("--outdir", default="./design2code_results")
-    parser.add_argument("--hf-dataset", default="HuggingFaceM4/WebSight")
-    parser.add_argument("--hf-config", default="v0.2",
-                         help="имя конфига датасета (WebSight -> v0.2; Design2Code-hf -> default).")
-    parser.add_argument("--hf-split", default="train",
-                         help="сплит датасета (у WebSight и Design2Code-hf -> train).")
+    parser.add_argument("--hf-dataset", default="SALT-NLP/Design2Code")
     parser.add_argument("--shuffle-buffer-size", type=int, default=10_000,
                          help="buffer_size для ds.shuffle() в streaming-режиме HF datasets.")
     parser.add_argument("--enable-thinking", action="store_true")
-    parser.add_argument("--tensor-parallel-size", type=int, default=2)
-    parser.add_argument("--gpu-memory-utilization", type=float, default=0.5)
-    parser.add_argument("--max-model-len", type=int, default=24384)
+    parser.add_argument("--tensor-parallel-size", type=int, default=1)
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.89)
+    parser.add_argument("--max-model-len", type=int, default=16384)
     parser.add_argument("--num-workers", type=int, default=16,
                          help="Параллельные процессы для рендера+метрик внутри одного батча.")
+    parser.add_argument("--clip-batch-size", type=int, default=256,
+                         help="Размер под-батча для CLIP-инференса на общем GPU-сервере "
+                              "(см. clip_server.py) — не путать с --batch-size (размер батча "
+                              "датасета). Запросы от всех --num-workers процессов копятся здесь "
+                              "до clip-batch-size ИЛИ короткого таймаута и считаются одним "
+                              "forward-проходом.")
     parser.add_argument("--n-examples-per-batch", type=int, default=5,
                          help="Сколько случайных сэмплов батча сохранить как пример "
                               "(html+png) и как строку в results.csv.")
     parser.add_argument("--no-resume", action="store_true",
                          help="Игнорировать progress.json и начать с батча 0 "
                               "(старые examples/ и results.csv будут перезаписаны).")
-    # Пиксельный бюджет картинки — ДОЛЖЕН совпадать с обучением
-    # (SFT/train/formatting.py). Без него vLLM берёт родное разрешение картинки,
-    # и чекпоинт бенчится вне своего трейн-распределения.
+    # --- добавлено в exps: конфиг датасета, пиксель-бюджет, связь с обучением ---
+    parser.add_argument("--hf-config", default="default",
+                         help="имя конфига датасета (Design2Code-hf -> default).")
+    parser.add_argument("--hf-split", default="train")
     parser.add_argument("--min-pixels", type=int, default=262_144,
                          help="min_pixels процессора (как в SFT). 262144 = 256*32*32")
     parser.add_argument("--max-pixels", type=int, default=2_097_152,
-                         help="max_pixels процессора (как в SFT, Tier A). 2097152 = 2048*32*32")
+                         help="max_pixels процессора (ДОЛЖЕН совпадать с обучением, иначе "
+                              "чекпоинт меряется вне своего распределения — H1).")
+    parser.add_argument("--train-task-id", default=None,
+                         help="id ClearML-задачи обучения, из которой взят чекпоинт "
+                              "(обычно подхватывается из clearml_task.json рядом с весами).")
     return parser.parse_args()
 
 
@@ -137,10 +162,12 @@ def parse_args():
 # целиком из старого файла.
 # =============================================================================
 
-def load_model(model_id_or_path: str, tensor_parallel_size: int, gpu_memory_utilization: float, max_model_len: int, min_pixels: int, max_pixels: int):
+def load_model(model_id_or_path: str, tensor_parallel_size: int, gpu_memory_utilization: float,
+               max_model_len: int, min_pixels: int = 262_144, max_pixels: int = 2_097_152):
     from vllm import LLM
 
-    print(f"[run_benchmark] Загружаю модель {model_id_or_path} через vLLM...")
+    print(f"[run_benchmark] Загружаю модель {model_id_or_path} через vLLM "
+          f"(min_pixels={min_pixels}, max_pixels={max_pixels})...")
     return LLM(
         model=model_id_or_path,
         tensor_parallel_size=tensor_parallel_size,
@@ -148,7 +175,8 @@ def load_model(model_id_or_path: str, tensor_parallel_size: int, gpu_memory_util
         max_model_len=max_model_len,
         trust_remote_code=True,
         limit_mm_per_prompt={"image": 1},
-        # тот же пиксельный бюджет, что в обучении (см. комментарий в parse_args)
+        # Пиксель-бюджет процессора — ДОЛЖЕН совпадать с обучением (H1). Без него
+        # vLLM берёт родное разрешение картинки, и чекпоинт меряется вне трейн-распределения.
         mm_processor_kwargs={"min_pixels": min_pixels, "max_pixels": max_pixels},
     )
 
@@ -187,12 +215,7 @@ def generate_html_batch(llm, images, max_new_tokens: int, enable_thinking: bool)
         sampling_params=sampling_params,
         chat_template_kwargs={"enable_thinking": enable_thinking},
     )
-    # (html, finish_reason): finish_reason="length" = упёрлись в max_new_tokens
-    # (HTML оборван), "stop" = модель сама закрыла ход.
-    return [
-        (extract_html(output.outputs[0].text), output.outputs[0].finish_reason)
-        for output in outputs
-    ]
+    return [extract_html(output.outputs[0].text) for output in outputs]
 
 
 def prepare_ref_one(idx: int, ref_html: str, sample_dir_str: str) -> dict:
@@ -214,32 +237,37 @@ def prepare_ref_one(idx: int, ref_html: str, sample_dir_str: str) -> dict:
     return info
 
 
-def render_and_score_one(idx: int, pred_html: str, sample_dir_str: str, finish_reason: str = None) -> dict:
+def render_and_score_one(idx: int, pred_html: str, sample_dir_str: str) -> dict:
     """Идентично run_benchmark.py — воркер для ProcessPoolExecutor (или прямой
     вызов при num_workers<=1). Импорт render/metrics внутри функции (см.
     комментарий в оригинале про spawn + CUDA)."""
     from pathlib import Path as _Path
-    from render import prepare_and_render
+    from render import replace_images_with_placeholder
     from metrics import score_pair
 
     sample_dir = _Path(sample_dir_str)
-    row = {"idx": idx, "finish_reason": finish_reason}
+    row = {"idx": idx}
 
     if pred_html is None:
         row["status"] = "generation_error"
         return row
 
-    pred_info = prepare_and_render(
-        pred_html,
-        str(sample_dir / "pred.html"),
-        str(sample_dir / "pred.png"),
-    )
-    row.update({"pred_n_img_replaced": pred_info["n_images_replaced"], "pred_render_ok": pred_info["render_ok"]})
+    # Только запись pred.html с плейсхолдерами — score_pair ожидает его на
+    # диске. НЕ рендерим pred.png здесь: score_pair -> visual_eval_v3_multi
+    # рендерит его сам (do_it_again=True) внутри одного общего render_many
+    # вместе с обоими перекрашенными вариантами pred и (если нужно) ref —
+    # см. metrics.visual_eval_v3_multi. Рендер здесь был бы избыточным
+    # повторным скриншотом того же pred.html.
+    pred_html_path = sample_dir / "pred.html"
+    clean_html, n_replaced = replace_images_with_placeholder(pred_html)
+    pred_html_path.write_text(clean_html, encoding="utf-8")
+    row["pred_n_img_replaced"] = n_replaced
 
     try:
-        scores = score_pair(str(sample_dir / "pred.html"), str(sample_dir / "ref.html"))
+        scores = score_pair(str(pred_html_path), str(sample_dir / "ref.html"))
         row.update(scores)
         row["status"] = "scored"
+        row["pred_render_ok"] = _Path(sample_dir / "pred.png").exists()
     except Exception as e:
         row["status"] = f"metric_error: {e}"
 
@@ -252,27 +280,19 @@ def render_and_score_one(idx: int, pred_html: str, sample_dir_str: str, finish_r
 
 def iter_dataset_batches(hf_dataset: str, n_samples: int, batch_size: int, seed: int,
                           shuffle_buffer_size: int, skip: int = 0,
-                          hf_config: str = "v0.2", hf_split: str = "train"):
+                          hf_config: str = "default", hf_split: str = "train"):
     """Генератор: отдаёт список HF-сэмплов (dict с ключами 'text'/'image') по
     batch_size штук за раз, пока не наберётся n_samples суммарно.
-
-    skip: сколько сэмплов уже обработано в предыдущих запусках (для resume) -
-    именно столько записей streaming-итератора пропускаем перед тем, как
-    начать копить первый батч этого запуска. Порядок стабилен, потому что
-    shuffle(seed=...) с тем же seed всегда даёт одну и ту же перестановку
-    (при том же buffer_size) - см. https://huggingface.co/docs/datasets - так
-    что skip=N всегда пропускает те же самые N сэмплов, что уже обработаны.
     """
     import os
     from datasets import load_dataset, load_from_disk
 
     # Локальный датасет (load_from_disk) — для sanity-тестов, где train-сет и
-    # bench-сет ДОЛЖНЫ быть одними и теми же сэмплами. Ожидаются колонки
-    # 'image'/'text' (формат Design2Code); порядок берётся как есть, без shuffle.
+    # bench-сет ДОЛЖНЫ быть одними и теми же сэмплами. Колонки 'image'/'text',
+    # порядок как есть, без shuffle.
     if os.path.isdir(hf_dataset) and os.path.exists(os.path.join(hf_dataset, "dataset_info.json")):
         print(f"[run_benchmark] Локальный датасет {hf_dataset} (без shuffle)...")
-        ds_local = load_from_disk(hf_dataset)
-        it = iter(ds_local)
+        it = iter(load_from_disk(hf_dataset))
         for _ in range(skip):
             next(it, None)
         remaining = n_samples - skip
@@ -284,9 +304,8 @@ def iter_dataset_batches(hf_dataset: str, n_samples: int, batch_size: int, seed:
             remaining -= len(batch)
         return
 
-    print(f"[run_benchmark] Открываю {hf_dataset} в streaming-режиме (skip={skip})...")
+    print(f"[run_benchmark] Открываю {hf_dataset} (config={hf_config}) в streaming-режиме (skip={skip})...")
     ds_stream = load_dataset(hf_dataset, name=hf_config, split=hf_split, streaming=True)
-    ds_stream = ds_stream.shuffle(seed=seed, buffer_size=shuffle_buffer_size)
 
     it = iter(ds_stream)
 
@@ -361,8 +380,7 @@ def load_progress(progress_path: Path) -> dict:
     if progress_path.exists():
         return json.loads(progress_path.read_text(encoding="utf-8"))
     return {"next_batch_idx": 0, "dataset_offset": 0, "n_generation_errors": 0,
-            "n_metric_errors": 0, "n_other_errors": 0, "n_length_truncated": 0,
-            "accumulator": None}
+            "n_metric_errors": 0, "n_other_errors": 0, "accumulator": None}
 
 
 def save_progress(progress_path: Path, progress: dict):
@@ -384,10 +402,15 @@ def log_time(outdir: Path, stage_name, duration_seconds):
 # =============================================================================
 
 def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examples_root: Path,
-                       args, rng: random.Random):
+                       args, rng: random.Random, clip_request_queue=None):
     """Возвращает (examples_df, ok_df, n_generation_errors, n_metric_errors, n_other_errors).
     work_root: временный каталог этого батча (html/png сэмплов) - целиком
     удаляется в конце функции, кроме файлов, скопированных в examples_root.
+    clip_request_queue: очередь общего CLIP-сервера (см. clip_server.py) — если
+    задана, воркеры рендера+метрик передают её в _worker_init и НЕ грузят
+    CLIP локально (см. --num-workers ветку ниже). None только если
+    --num-workers<=1 — тогда рендер+метрики (в т.ч. CLIP) считаются прямо в
+    этом процессе без пула, clip_server не запускается вовсе.
     """
     batch_dir = work_root / f"batch_{batch_idx:05d}"
     batch_dir.mkdir(parents=True, exist_ok=True)
@@ -445,10 +468,10 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
     print(f"[batch {batch_idx}] Генерирую HTML для {n} сэмплов...")
     images = [batch_samples[i]["image"].convert("RGB") for i in range(n)]
     try:
-        pred_pairs = generate_html_batch(llm, images, args.max_new_tokens, args.enable_thinking)
+        pred_html_list = generate_html_batch(llm, images, args.max_new_tokens, args.enable_thinking)
     except Exception as e:
         print(f"[batch {batch_idx}] Ошибка батчевой генерации: {e}")
-        pred_pairs = [(None, "batch_error")] * n
+        pred_html_list = [None] * n
     del images
 
     # --- рендер + метрики ---
@@ -456,7 +479,7 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
         rows = []
         for i in tqdm(range(n), desc=f"[batch {batch_idx}] Рендер + метрики"):
             sample_dir = batch_dir / f"sample_{i:05d}"
-            row = render_and_score_one(i, pred_pairs[i][0], str(sample_dir), pred_pairs[i][1])
+            row = render_and_score_one(i, pred_html_list[i], str(sample_dir))
             row["ref_n_img_replaced"] = ref_infos[i]["n_images_replaced"]
             row["ref_render_ok"] = ref_infos[i]["render_ok"]
             rows.append(row)
@@ -469,11 +492,19 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
 
         ctx = mp.get_context("spawn")
         rows_by_idx = {}
-        print(f"[batch {batch_idx}] Рендер+метрики на {args.num_workers} процессах...")
-        with ProcessPoolExecutor(max_workers=args.num_workers, mp_context=ctx) as executor:
+        print(f"[batch {batch_idx}] Рендер+метрики на {args.num_workers} процессах "
+              f"(CLIP через общий сервер, clip-batch-size={args.clip_batch_size})...")
+        # initializer=_worker_init передаёт клиента CLIP-сервера каждому
+        # процессу пула ОДИН РАЗ при его старте (не на каждый submit) — сам
+        # процесс воркера переиспользуется между батчами датасета (пул
+        # создаётся заново на каждый process_one_batch, но это дёшево:
+        # тяжёлая часть, GPU-модель, остаётся в clip_server и не
+        # пересоздаётся вместе с пулом).
+        with ProcessPoolExecutor(max_workers=args.num_workers, mp_context=ctx,
+                                  initializer=_worker_init, initargs=(clip_request_queue,)) as executor:
             futures = {
-                executor.submit(render_and_score_one, i, pred_pairs[i][0],
-                                 str(batch_dir / f"sample_{i:05d}"), pred_pairs[i][1]): i
+                executor.submit(render_and_score_one, i, pred_html_list[i],
+                                 str(batch_dir / f"sample_{i:05d}")): i
                 for i in range(n)
             }
             for future in tqdm(as_completed(futures), total=len(futures),
@@ -482,7 +513,7 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
                 try:
                     row = future.result()
                 except Exception as e:
-                    row = {"idx": i, "status": f"worker_error: {e}", "finish_reason": pred_pairs[i][1]}
+                    row = {"idx": i, "status": f"worker_error: {e}"}
                 row["ref_n_img_replaced"] = ref_infos[i]["n_images_replaced"]
                 row["ref_render_ok"] = ref_infos[i]["render_ok"]
                 rows_by_idx[i] = row
@@ -501,13 +532,6 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
     n_known_bad = n_generation_errors + n_metric_errors
     n_other_errors = int(len(df) - (df["status"] == "scored").sum() - n_known_bad) \
         if "status" in df else 0
-
-    # Обрезка по лимиту токенов: finish_reason="length" = модель упёрлась в
-    # max_new_tokens и HTML оборван. Это НЕ generation_error (сэмпл всё равно
-    # отрендерится и посчитается), но метрики по нему занижены — считаем отдельно,
-    # чтобы отличить «модель пишет слишком длинно» от упавших батчей.
-    n_length_truncated = int((df["finish_reason"] == "length").sum()) \
-        if "finish_reason" in df else 0
 
     # --- выбираем случайные примеры ДО удаления файлов батча ---
     scored_idx = df.index[df["status"] == "scored"].tolist()
@@ -540,7 +564,7 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
     # --- полная очистка временных файлов батча ---
     shutil.rmtree(batch_dir, ignore_errors=True)
 
-    return examples_df, ok_df, n_generation_errors, n_metric_errors, n_other_errors, n_length_truncated
+    return examples_df, ok_df, n_generation_errors, n_metric_errors, n_other_errors
 
 
 def append_examples_csv(results_path: Path, examples_df: pd.DataFrame):
@@ -555,7 +579,6 @@ def main():
 
     sys.path.insert(0, str(Path(__file__).parent))
     from tracking import log_benchmark_summary, start_benchmark_task
-
     # ClearML: одна задача на прогон бенча (сетап × final_score). No-op без clearml.
     cml_task = start_benchmark_task(args)
 
@@ -584,73 +607,87 @@ def main():
     n_generation_errors = progress.get("n_generation_errors", 0)
     n_metric_errors = progress.get("n_metric_errors", 0)
     n_other_errors = progress.get("n_other_errors", 0)
-    n_length_truncated = progress.get("n_length_truncated", 0)
 
     if start_batch_idx > 0:
         print(f"[run_benchmark] Резюмирую с батча {start_batch_idx} "
               f"(уже обработано сэмплов: {dataset_offset}, накоплено метрик: {accumulator.count}).")
 
-    llm = load_model(args.model, args.tensor_parallel_size, args.gpu_memory_utilization, args.max_model_len, args.min_pixels, args.max_pixels)
+    llm = load_model(args.model, args.tensor_parallel_size, args.gpu_memory_utilization,
+                     args.max_model_len, args.min_pixels, args.max_pixels)
 
-    # # metrics.py импортируется только после LLM (см. run_benchmark.py — CUDA/fork).
-    # import metrics  # noqa: F401  (гарантирует, что CLIP грузится один раз здесь)
+    # CLIP-сервер стартует ОДИН РАЗ на весь прогон (не на батч, не на воркера)
+    # — после vLLM (та же причина, что и раньше: не мешаем CUDA-инициализации
+    # vLLM своей). Единственная копия CLIP на GPU, все --num-workers процессов
+    # рендера+метрик шлют туда запросы вместо локальной загрузки модели.
+    # Если --num-workers<=1, отдельный процесс не нужен — рендер+метрики и
+    # так считаются в этом же процессе, metrics.py сам поднимет локальный
+    # CLIP при первом обращении (см. _ensure_local_clip_loaded).
+    clip_server = None
+    clip_request_queue = None
+    if args.num_workers > 1:
+        from clip_server import ClipServer
+        clip_server = ClipServer(clip_batch_size=args.clip_batch_size)
+        clip_server.start()
+        clip_request_queue = clip_server.request_queue
 
     rng = random.Random(args.seed + 1)  # отдельный seed для выбора examples, не путать с shuffle датасета
 
-    batch_gen = iter_dataset_batches(
-        args.hf_dataset, args.n_samples, args.batch_size, args.seed,
-        args.shuffle_buffer_size, skip=dataset_offset,
-        hf_config=args.hf_config, hf_split=args.hf_split,
-    )
-
-    batch_idx = start_batch_idx
-    for batch_samples in batch_gen:
-        t0 = time.perf_counter()
-        print(f"\n=== Батч {batch_idx} ({len(batch_samples)} сэмплов, "
-              f"offset {dataset_offset}..{dataset_offset + len(batch_samples)}) ===")
-
-        examples_df, ok_df, n_gen_err, n_met_err, n_other_err, n_len_trunc = process_one_batch(
-            llm, batch_samples, batch_idx, work_root, examples_root, args, rng,
+    try:
+        batch_gen = iter_dataset_batches(
+            args.hf_dataset, args.n_samples, args.batch_size, args.seed,
+            args.shuffle_buffer_size, skip=dataset_offset,
+            hf_config=args.hf_config, hf_split=args.hf_split,
         )
 
-        append_examples_csv(results_path, examples_df)
-        accumulator.add_batch(ok_df)
-        n_generation_errors += n_gen_err
-        n_metric_errors += n_met_err
-        n_other_errors += n_other_err
-        n_length_truncated += n_len_trunc
-        dataset_offset += len(batch_samples)
-        batch_idx += 1
+        batch_idx = start_batch_idx
+        for batch_samples in batch_gen:
+            t0 = time.perf_counter()
+            print(f"\n=== Батч {batch_idx} ({len(batch_samples)} сэмплов, "
+                  f"offset {dataset_offset}..{dataset_offset + len(batch_samples)}) ===")
 
-        if n_len_trunc > 0:
-            print(f"[batch {batch_idx - 1}] Обрезано по лимиту токенов "
-                  f"(finish_reason=length): {n_len_trunc}/{len(batch_samples)} "
-                  f"({n_len_trunc / len(batch_samples):.1%}) — метрики по ним занижены.")
+            examples_df, ok_df, n_gen_err, n_met_err, n_other_err = process_one_batch(
+                llm, batch_samples, batch_idx, work_root, examples_root, args, rng,
+                clip_request_queue=clip_request_queue,
+            )
 
-        progress = {
-            "next_batch_idx": batch_idx,
-            "dataset_offset": dataset_offset,
-            "n_generation_errors": n_generation_errors,
-            "n_metric_errors": n_metric_errors,
-            "n_other_errors": n_other_errors,
-            "n_length_truncated": n_length_truncated,
-            "accumulator": accumulator.to_state(),
-        }
-        save_progress(progress_path, progress)
+            append_examples_csv(results_path, examples_df)
+            accumulator.add_batch(ok_df)
+            n_generation_errors += n_gen_err
+            n_metric_errors += n_met_err
+            n_other_errors += n_other_err
+            dataset_offset += len(batch_samples)
+            batch_idx += 1
 
-        if n_other_err > 0:
-            print(f"[batch {batch_idx - 1}] Внимание: {n_other_err} сэмпл(ов) с "
-                  f"неучтённым статусом (например worker_error) — исключены из среднего.")
+            progress = {
+                "next_batch_idx": batch_idx,
+                "dataset_offset": dataset_offset,
+                "n_generation_errors": n_generation_errors,
+                "n_metric_errors": n_metric_errors,
+                "n_other_errors": n_other_errors,
+                "accumulator": accumulator.to_state(),
+            }
+            save_progress(progress_path, progress)
 
-        duration = time.perf_counter() - t0
-        log_time(outdir, f"Батч {batch_idx - 1}", duration)
-        means_so_far = accumulator.means()
-        print(f"[batch {batch_idx - 1}] {duration:.1f} сек. Накопленное среднее "
-              f"({accumulator.count} оценённых сэмплов): "
-              + ", ".join(f"{k}={v:.4f}" for k, v in means_so_far.items()))
+            if n_other_err > 0:
+                print(f"[batch {batch_idx - 1}] Внимание: {n_other_err} сэмпл(ов) с "
+                      f"неучтённым статусом (например worker_error) — исключены из среднего.")
 
-    from render import close_browser
-    close_browser()
+            duration = time.perf_counter() - t0
+            log_time(outdir, f"Батч {batch_idx - 1}", duration)
+            means_so_far = accumulator.means()
+            print(f"[batch {batch_idx - 1}] {duration:.1f} сек. Накопленное среднее "
+                  f"({accumulator.count} оценённых сэмплов): "
+                  + ", ".join(f"{k}={v:.4f}" for k, v in means_so_far.items()))
+
+        from render import close_browser
+        close_browser()
+    finally:
+        # Гарантированная остановка CLIP-сервера даже при исключении/Ctrl+C —
+        # иначе daemon-процесс с моделью на GPU останется висеть и держать
+        # VRAM после падения основного процесса.
+        if clip_server is not None:
+            print("[run_benchmark] Останавливаю CLIP-сервер...")
+            clip_server.stop()
 
     final_means = accumulator.means()
     # n_excluded_total — сумма ВСЕХ причин, по которым сэмпл не попал в
@@ -672,9 +709,6 @@ def main():
         "n_generation_errors": n_generation_errors,
         "n_metric_errors": n_metric_errors,
         "n_other_errors": n_other_errors,
-        # ортогонально n_excluded_total: обрезанные по токенам сэмплы обычно
-        # всё равно scored, но с заниженными метриками — поэтому отдельным полем.
-        "n_length_truncated": n_length_truncated,
         **final_means,
     }
     summary_path = outdir / "summary.json"
@@ -687,10 +721,6 @@ def main():
     print(f"Исключено из среднего: {n_excluded_total} "
           f"(generation_error: {n_generation_errors}, metric_error: {n_metric_errors}, "
           f"прочее: {n_other_errors})")
-    if dataset_offset:
-        print(f"Обрезано по лимиту токенов (finish_reason=length): {n_length_truncated} "
-              f"({n_length_truncated / dataset_offset:.1%} от обработанных) — "
-              f"такие сэмплы обычно scored, но с заниженными метриками.")
     print("Итоговые средние по всем оценённым сэмплам (взвешенно, не среднее средних батчей):")
     for k, v in final_means.items():
         print(f"  {k}: {v:.4f}" if not math.isnan(v) else f"  {k}: nan")

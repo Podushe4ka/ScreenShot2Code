@@ -48,7 +48,39 @@ from colormath.color_conversions import convert_color
 from colormath.color_diff import delta_e_cie2000
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-_clip_model, _clip_preprocess = clip.load("ViT-B/32", device=device)
+
+# --- CLIP: локальная модель ИЛИ клиент общего CLIP-сервера ------------------
+# По умолчанию (обратная совместимость, --num-workers <= 1, CLI-режим
+# `python metrics.py`) модель грузится прямо здесь, как раньше — один
+# процесс, одна копия, ничего не меняется.
+#
+# Когда run_benchmark_batched.py запускает N воркеров рендера+метрик в
+# ProcessPoolExecutor, грузить здесь модель в каждом из них — тот самый
+# анти-паттерн, который выносится в отдельный процесс: см. clip_server.py.
+# В этом режиме run_benchmark_batched.py вызывает set_clip_client(...) в
+# initializer'е пула ДО того, как в этом процессе будет вызван score_pair —
+# тогда _clip_model/_clip_preprocess ниже вообще не грузятся (см. проверку
+# _clip_client is not None в _calculate_clip_similarity_with_blocks) и
+# GPU-инференс идёт через один батчующий сервер вместо N копий по batch=1.
+_clip_model, _clip_preprocess = None, None
+_clip_client = None
+
+
+def set_clip_client(client) -> None:
+    """Вызывается в initializer'е ProcessPoolExecutor (см.
+    run_benchmark_batched.py), ДО первого score_pair в этом процессе.
+    После вызова локальная CLIP-модель в этом процессе не грузится вовсе —
+    _calculate_clip_similarity_with_blocks идёт через client.similarity(...)
+    (см. clip_server.ClipClient), который сам блокирующе ждёт ответ от
+    общего батчующего CLIP-сервера."""
+    global _clip_client
+    _clip_client = client
+
+
+def _ensure_local_clip_loaded():
+    global _clip_model, _clip_preprocess
+    if _clip_model is None:
+        _clip_model, _clip_preprocess = clip.load("ViT-B/32", device=device)
 
 
 # =============================================================================
@@ -59,7 +91,7 @@ _clip_model, _clip_preprocess = clip.load("ViT-B/32", device=device)
 # нового sync_playwright()+launch() на каждый вызов. get_blocks_ocr_free ниже
 # зовёт take_screenshot дважды на сэмпл (p_png, p_png_1) — с общим браузером
 # это дешёвые новые вкладки, а не новые процессы Chromium.
-from render import take_screenshot
+from render import take_screenshot, render_many
 
 
 # =============================================================================
@@ -287,15 +319,29 @@ def _get_intermediate_names(name):
             name.replace(".png", "_p_1.png"))
 
 
-def get_blocks_ocr_free(image_path):
+def prepare_ocr_free_render_jobs(image_path) -> tuple[list[dict], tuple]:
+    """Готовит две перекрашенные HTML-копии (_process_html) и возвращает
+    render_many-совместимый список задач для них, БЕЗ самого рендера —
+    так вызывающий код (render_and_score_one) может объединить эти задачи
+    в один render_many вместе с рендером pred.png/ref.png, вместо трёх
+    отдельных последовательных раундов ожидания Chromium.
+    Возвращает (jobs, names) где names = (html, p_html, p_html_1, p_png, p_png_1)."""
     html, p_html, p_html_1, p_png, p_png_1 = _get_intermediate_names(image_path)
     _process_html(html, p_html)
     _process_html(html, p_html_1, offset=50)
+    jobs = [
+        {"html": p_html, "png": p_png, "overwrite": True},
+        {"html": p_html_1, "png": p_png_1, "overwrite": True},
+    ]
+    return jobs, (html, p_html, p_html_1, p_png, p_png_1)
 
-    # Было: os.system("python3 screenshot_single.py ...") — теперь прямой вызов в процессе.
-    take_screenshot(p_html, output_file=p_png, do_it_again=True)
-    take_screenshot(p_html_1, output_file=p_png_1, do_it_again=True)
 
+def get_blocks_from_prerendered(names: tuple) -> list:
+    """Вторая половина get_blocks_ocr_free: p_png/p_png_1 из `names` уже
+    должны существовать на диске (отрендерены заранее, см.
+    prepare_ocr_free_render_jobs) — эта функция только сравнивает пиксели
+    и извлекает блоки, рендера не делает."""
+    html, p_html, p_html_1, p_png, p_png_1 = names
     different_pixels = _find_different_pixels(p_png, p_png_1)
 
     if different_pixels is None:
@@ -316,6 +362,19 @@ def get_blocks_ocr_free(image_path):
     for f in (p_html, p_png, p_html_1, p_png_1):
         Path(f).unlink(missing_ok=True)
     return blocks
+
+
+def get_blocks_ocr_free(image_path):
+    """Оригинальный последовательный контракт — сохранён для обратной
+    совместимости (CLI `python metrics.py`, use_ref_cache=False, любой
+    другой вызывающий код, который не готов объединять рендеры сам).
+    render_and_score_one в run_benchmark_batched.py НЕ вызывает эту
+    функцию напрямую в горячем пути — см. prepare_ocr_free_render_jobs +
+    get_blocks_from_prerendered, объединённые в один render_many в
+    render_and_score_one."""
+    jobs, names = prepare_ocr_free_render_jobs(image_path)
+    render_many(jobs)
+    return get_blocks_from_prerendered(names)
 
 
 # =============================================================================
@@ -538,8 +597,21 @@ def _rescale_and_mask(image_path, blocks):
 
 
 def _calculate_clip_similarity_with_blocks(image_path1, image_path2, blocks1, blocks2):
-    image1 = _clip_preprocess(_rescale_and_mask(image_path1, [b['bbox'] for b in blocks1])).unsqueeze(0).to(device)
-    image2 = _clip_preprocess(_rescale_and_mask(image_path2, [b['bbox'] for b in blocks2])).unsqueeze(0).to(device)
+    bboxes1 = [b['bbox'] for b in blocks1]
+    bboxes2 = [b['bbox'] for b in blocks2]
+
+    if _clip_client is not None:
+        # Режим воркера под run_benchmark_batched.py --num-workers>1: не
+        # грузим модель в этом процессе вообще, отправляем запрос на общий
+        # CLIP-сервер и блокирующе ждём ответ (сервер сам батчует запросы
+        # от всех воркеров вместе — см. clip_server.py).
+        return _clip_client.similarity(image_path1, image_path2, bboxes1, bboxes2)
+
+    # Локальный режим (CLI `python metrics.py`, --num-workers<=1, или любой
+    # другой вызов без set_clip_client) — прежнее поведение, batch_size=1.
+    _ensure_local_clip_loaded()
+    image1 = _clip_preprocess(_rescale_and_mask(image_path1, bboxes1)).unsqueeze(0).to(device)
+    image2 = _clip_preprocess(_rescale_and_mask(image_path2, bboxes2)).unsqueeze(0).to(device)
     with torch.no_grad():
         f1 = _clip_model.encode_image(image1)
         f2 = _clip_model.encode_image(image2)
@@ -662,21 +734,45 @@ def visual_eval_v3_multi(input_list, debug=False, original_blocks=None, original
     predict_html_list, original_html = input_list[0], input_list[1]
     predict_img_list = [html.replace(".html", ".png") for html in predict_html_list]
 
-    predict_blocks_list = []
+    # --- собираем ВСЕ независимые рендеры этого вызова в один render_many ---
+    # Раньше: take_screenshot(pred.png), затем (внутри get_blocks_ocr_free)
+    # take_screenshot(pred_p.png), take_screenshot(pred_p_1.png) —
+    # последовательно; и то же самое для ref, если кэш не задан. Итого до 6
+    # последовательных ожиданий Chromium на сэмпл. Ни один из этих рендеров
+    # не зависит от результата другого (все получаются из HTML, никто не
+    # читает PNG другого рендера) - можно отдать их все разом в один
+    # render_many и получить максимум конкурентности вместо серии await'ов.
+    all_jobs = []
+    ocr_free_names_by_pred = {}  # predict_html -> names для get_blocks_from_prerendered
+
     for predict_html in predict_html_list:
         predict_img = predict_html.replace(".html", ".png")
         _pre_process(predict_html)
-        take_screenshot(predict_html, output_file=predict_img, do_it_again=True)
-        predict_blocks_list.append(get_blocks_ocr_free(predict_img))
+        all_jobs.append({"html": predict_html, "png": predict_img, "overwrite": True})
+        jobs, names = prepare_ocr_free_render_jobs(predict_img)
+        all_jobs.extend(jobs)
+        ocr_free_names_by_pred[predict_html] = names
 
+    ref_ocr_free_names = None
     if original_blocks is None:
         original_img = original_html.replace(".html", ".png")
-        take_screenshot(original_html, output_file=original_img, do_it_again=True)
-        original_blocks = _merge_blocks_by_bbox(get_blocks_ocr_free(original_img))
+        all_jobs.append({"html": original_html, "png": original_img, "overwrite": True})
+        jobs, ref_ocr_free_names = prepare_ocr_free_render_jobs(original_img)
+        all_jobs.extend(jobs)
     elif original_img is None:
         # original_blocks передали, но не путь к картинке — картинка нужна
         # ниже для CLIP (_calculate_clip_similarity_with_blocks читает файл).
         original_img = original_html.replace(".html", ".png")
+
+    render_many(all_jobs)  # один конкурентный раунд для всех задач выше
+
+    predict_blocks_list = [
+        get_blocks_from_prerendered(ocr_free_names_by_pred[predict_html])
+        for predict_html in predict_html_list
+    ]
+
+    if original_blocks is None:
+        original_blocks = _merge_blocks_by_bbox(get_blocks_from_prerendered(ref_ocr_free_names))
 
     consecutive_bonus, window_size = 0.1, 1
     return_score_list = []

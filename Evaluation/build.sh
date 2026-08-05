@@ -13,7 +13,7 @@ cd "$SCRIPT_DIR"
 # Dockerfile ожидает COPY render.py metrics.py
 # run_benchmark_batched.py — проверяем ДО docker build, а не
 # получаем невнятную ошибку "COPY failed: file not found" посреди сборки.
-required_files=(render.py metrics.py run_benchmark_batched.py tracking.py)
+required_files=(render.py metrics.py clip_server.py run_benchmark_batched.py tracking.py)
 missing=()
 for f in "${required_files[@]}"; do
     if [[ ! -f "$f" ]]; then

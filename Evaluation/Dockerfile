@@ -31,9 +31,10 @@ RUN pip install --no-cache-dir \
 
 RUN playwright install --with-deps chromium
 
-COPY render.py metrics.py run_benchmark_batched.py tracking.py ./
+COPY render.py metrics.py clip_server.py run_benchmark_batched.py tracking.py ./
 
 ENV HF_HOME=/root/.cache/huggingface
+
 ENV PYTHONUNBUFFERED=1
 
 ENTRYPOINT ["python3", "-u", "run_benchmark_batched.py"]
