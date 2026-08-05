@@ -17,6 +17,12 @@ OUT="$BASE/checkpoints_exps/d2c-sanity-fit"
 LOG="$BASE/SANITYFIT.log"
 say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
 
+# Контейнерные пути: внутри docker /mnt/storage-1 смонтирован как /storage.
+# save_to_disk ДОЛЖЕН писать по /storage/... (bind mount), иначе данные уходят
+# в эфемерную ФС контейнера и исчезают с ним (ровно это уронило первый запуск).
+TRAIN_DS_C="${TRAIN_DS/\/mnt\/storage-1//storage}"
+BENCH_DS_C="${BENCH_DS/\/mnt\/storage-1//storage}"
+
 # --- 1. отфильтровать короткие Design2Code, сохранить оба формата ---
 if [[ ! -d "$TRAIN_DS/train" ]]; then
   say "фильтрую Design2Code до коротких (<$MAXCHARS симв), беру $N; seed 0"
@@ -32,13 +38,13 @@ for r in ds:
     if len(draft) >= $N: break
 fd = Features({'task_type':Value('string'),'images':Sequence(Image()),'current_html':Value('string'),'target_html':Value('string'),'instruction':Value('string')})
 d = Dataset.from_list(draft, features=fd)
-DatasetDict({'train':d,'validation':d.select(range(min(6,len(d))))}).save_to_disk('$TRAIN_DS')
-Dataset.from_list(bench, features=Features({'image':Image(),'text':Value('string')})).save_to_disk('$BENCH_DS')
+DatasetDict({'train':d,'validation':d.select(range(min(6,len(d))))}).save_to_disk('$TRAIN_DS_C')
+Dataset.from_list(bench, features=Features({'image':Image(),'text':Value('string')})).save_to_disk('$BENCH_DS_C')
 print('готово:', len(draft), 'сэмплов')
 " > "$BASE/sfit_build.log" 2>&1
   say "сборка: $(grep -o 'готово.*' $BASE/sfit_build.log 2>/dev/null || echo 'см. sfit_build.log')"
 fi
-NREAL=$(docker run --rm -v /mnt/storage-1:/storage --entrypoint /opt/venv/bin/python sft -c "from datasets import load_from_disk;print(len(load_from_disk('$BENCH_DS')))" 2>/dev/null)
+NREAL=$(docker run --rm -v /mnt/storage-1:/storage --entrypoint /opt/venv/bin/python sft -c "from datasets import load_from_disk;print(len(load_from_disk('$BENCH_DS_C')))" 2>/dev/null)
 [[ -n "$NREAL" ]] || { say "датасет не собрался"; exit 1; }
 say "сэмплов в наборе: $NREAL"
 
