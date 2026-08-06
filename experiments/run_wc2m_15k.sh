@@ -95,11 +95,14 @@ else
     # TMPDIR НЕ переопределяем: Chromium падает "Target crashed", если его
     # временные файлы лежат на сетевом диске.
     say "конвертация: playwright, $N_WORKERS воркеров (для 3k занимало ~2 мин рендера)"
+    # HF_TOKEN пробрасывается, только если он есть в окружении: без него всё
+    # работает, просто скачивание идёт на лимитах для анонимных запросов.
     docker run --rm -v "$REPO":/w -v /mnt/storage-1:/storage --shm-size=2g \
-      -e HF_HOME=/storage/Screenshot2Code/hf_cache \
+      -e HF_HOME=/storage/Screenshot2Code/hf_cache ${HF_TOKEN:+-e HF_TOKEN} \
       -w /w/Data/converters/webcode2m --entrypoint python3 "$BENCH_IMAGE" \
       convert_parallel.py --target "$TARGET" --n-workers "$N_WORKERS" \
       --max-scan $(( TARGET * 4 )) \
+      --html-cache "/storage/Screenshot2Code/data/webcode2m_${TARGET}_htmls.jsonl.gz" \
       --out "/storage/Screenshot2Code/data/webcode2m_$TARGET" \
       > "$LOGS/convert.log" 2>&1
     say "конвертация: rc=$? (лог: $LOGS/convert.log)"
