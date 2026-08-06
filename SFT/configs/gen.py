@@ -17,7 +17,7 @@ from train.formatting import MAX_PIXELS
 
 OUT = Path("configs")
 
-N_GPUS = 2
+N_GPUS = 4
 
 TARGET_EFF_BATCH = 64
 

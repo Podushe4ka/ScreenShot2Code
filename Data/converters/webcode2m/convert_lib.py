@@ -21,8 +21,8 @@ import re
 from bs4 import BeautifulSoup
 
 # ---- переиспользуем протестированное ядро из drafting-конвертера (один источник правды) ----
-_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "drafting", "convert_lib.py")
-_spec = importlib.util.spec_from_file_location("drafting_convert_lib", _BASE)
+_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "websight", "convert_lib.py")
+_spec = importlib.util.spec_from_file_location("websight_convert_lib", _BASE)
 _base = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_base)
 
