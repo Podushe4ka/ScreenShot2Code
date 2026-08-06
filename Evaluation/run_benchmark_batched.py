@@ -124,6 +124,17 @@ def parse_args():
     parser.add_argument("--shuffle-buffer-size", type=int, default=10_000,
                          help="buffer_size для ds.shuffle() в streaming-режиме HF datasets.")
     parser.add_argument("--enable-thinking", action="store_true")
+    # Параметры декодирования. Раньше не задавались вообще — vLLM брал свои
+    # дефолты (temperature 1.0, top_p 1.0), то есть бенч мерил модель под
+    # чистым сэмплингом. Для HTML это шум: см. комментарий в generate_html_batch.
+    parser.add_argument("--temperature", type=float, default=0.0,
+                        help="0 = greedy (по умолчанию). >0 включает сэмплинг.")
+    parser.add_argument("--top-p", type=float, default=1.0)
+    parser.add_argument("--repetition-penalty", type=float, default=1.0,
+                        help="1.0 = выключено; 1.05-1.1 лечит зацикливание.")
+    parser.add_argument("--sampling-seed", type=int, default=0,
+                        help="Seed сэмплинга (применяется только при temperature>0), "
+                             "чтобы прогон был воспроизводим.")
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.89)
     parser.add_argument("--max-model-len", type=int, default=16384)
@@ -202,10 +213,25 @@ def extract_html(text: str) -> str:
     return text.strip()
 
 
-def generate_html_batch(llm, images, max_new_tokens: int, enable_thinking: bool) -> list[str]:
+def generate_html_batch(llm, images, max_new_tokens: int, enable_thinking: bool,
+                        temperature: float = 0.0, top_p: float = 1.0,
+                        repetition_penalty: float = 1.0, seed=None) -> list[str]:
     from vllm import SamplingParams
 
-    sampling_params = SamplingParams(max_tokens=max_new_tokens)
+    # ⚠ Дефолт vLLM у SamplingParams — temperature=1.0, top_p=1.0, seed=None,
+    # то есть ЧИСТЫЙ сэмплинг из полного распределения. Раньше параметры не
+    # задавались вовсе, и бенч молча работал именно так. Для страницы в ~8к
+    # токенов это губительно: шанс сорваться копится по всем токенам, и выход
+    # получается «всё или ничего» — либо почти эталон, либо обрыв посреди
+    # <style> с пустым рендером и score ровно 0. Тем же объясняется разброс
+    # между прогонами одной и той же модели. По умолчанию теперь greedy.
+    sampling_params = SamplingParams(
+        max_tokens=max_new_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        repetition_penalty=repetition_penalty,
+        seed=seed,
+    )
     conversations = [
         [{"role": "user", "content": [{"type": "image_pil", "image_pil": image}, {"type": "text", "text": PROMPT}]}]
         for image in images
@@ -215,7 +241,17 @@ def generate_html_batch(llm, images, max_new_tokens: int, enable_thinking: bool)
         sampling_params=sampling_params,
         chat_template_kwargs={"enable_thinking": enable_thinking},
     )
-    return [extract_html(output.outputs[0].text) for output in outputs]
+    # Вместе с HTML отдаём диагностику генерации. finish_reason различает две
+    # СОВСЕМ разные поломки, которые по одному только score неотличимы:
+    # "length" — упёрлись в max_new_tokens (метрики занижены незаслуженно),
+    # "stop" при коротком выводе — модель сама выдала EOS раньше времени
+    # (ровно так схлопывались чекпоинты жёсткого рецепта: 156-456 байт).
+    htmls, infos = [], []
+    for output in outputs:
+        o = output.outputs[0]
+        htmls.append(extract_html(o.text))
+        infos.append({"finish_reason": o.finish_reason, "pred_n_tokens": len(o.token_ids)})
+    return htmls, infos
 
 
 def prepare_ref_one(idx: int, ref_html: str, sample_dir_str: str) -> dict:
@@ -468,10 +504,16 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
     print(f"[batch {batch_idx}] Генерирую HTML для {n} сэмплов...")
     images = [batch_samples[i]["image"].convert("RGB") for i in range(n)]
     try:
-        pred_html_list = generate_html_batch(llm, images, args.max_new_tokens, args.enable_thinking)
+        pred_html_list, gen_infos = generate_html_batch(
+            llm, images, args.max_new_tokens, args.enable_thinking,
+            temperature=args.temperature, top_p=args.top_p,
+            repetition_penalty=args.repetition_penalty,
+            seed=(args.sampling_seed if args.temperature > 0 else None),
+        )
     except Exception as e:
         print(f"[batch {batch_idx}] Ошибка батчевой генерации: {e}")
         pred_html_list = [None] * n
+        gen_infos = [{} for _ in range(n)]
     del images
 
     # --- рендер + метрики ---
@@ -482,6 +524,7 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
             row = render_and_score_one(i, pred_html_list[i], str(sample_dir))
             row["ref_n_img_replaced"] = ref_infos[i]["n_images_replaced"]
             row["ref_render_ok"] = ref_infos[i]["render_ok"]
+            row.update(gen_infos[i])
             rows.append(row)
     else:
         from render import close_browser
@@ -516,6 +559,7 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
                     row = {"idx": i, "status": f"worker_error: {e}"}
                 row["ref_n_img_replaced"] = ref_infos[i]["n_images_replaced"]
                 row["ref_render_ok"] = ref_infos[i]["render_ok"]
+                row.update(gen_infos[i])
                 rows_by_idx[i] = row
         rows = [rows_by_idx[i] for i in range(n)]
 
@@ -709,6 +753,14 @@ def main():
         "n_generation_errors": n_generation_errors,
         "n_metric_errors": n_metric_errors,
         "n_other_errors": n_other_errors,
+        # Режим декодирования пишем в сводку: без него прогоны не сравнить
+        # (старые summary.json сняты чистым сэмплингом при temperature 1.0).
+        "decoding": {
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "repetition_penalty": args.repetition_penalty,
+            "max_new_tokens": args.max_new_tokens,
+        },
         **final_means,
     }
     summary_path = outdir / "summary.json"
