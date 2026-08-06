@@ -276,9 +276,29 @@ def render_many(jobs: list[dict], max_concurrency: int = 6) -> None:
 atexit.register(close_async_browser)
 
 
+# Порядок парсеров: сначала спецификационный html5lib, потом штатный html.parser.
+#
+# ⚠ ЗАЧЕМ. `html.parser` на странице со `<script type="text/babel">` выходит из режима
+# сырого текста на первом же JSX-теге внутри скрипта, дальше разбирает JSX как разметку
+# и при пересборке через str(soup) ВЫБРАСЫВАЕТ весь остаток документа, дописав
+# автозакрытие `</script></body></html>`. На выводе UI2Code^N это уничтожало 60-90%
+# сгенерированного текста у 27 сэмплов из 40 (0.34-1.7 байта на токен при норме 3.5-4.2),
+# и ровно эти 27 давали на бенче ноль. html5lib держит содержимое script как есть.
+_PARSERS = ("html5lib", "html.parser")
+
+
+def _make_soup(html_text: str) -> BeautifulSoup:
+    for parser in _PARSERS:
+        try:
+            return BeautifulSoup(html_text, parser)
+        except Exception:
+            continue
+    return BeautifulSoup(html_text, "html.parser")
+
+
 def replace_images_with_placeholder(html_text: str) -> tuple[str, int]:
     """Заменяет каждый <img> на div-плейсхолдер. Возвращает (новый_html, число_замен)."""
-    soup = BeautifulSoup(html_text, "html.parser")
+    soup = _make_soup(html_text)
     n_replaced = 0
     for img_tag in soup.find_all("img"):
         new_div = soup.new_tag("div")
@@ -287,6 +307,118 @@ def replace_images_with_placeholder(html_text: str) -> tuple[str, int]:
         img_tag.replace_with(new_div)
         n_replaced += 1
     return str(soup), n_replaced
+
+
+# Библиотеки, которые модели тянут с CDN, держим локально. Иначе материализация
+# зависит от сети: на прогоне в 40 страниц это ~200 запросов подряд с одного адреса,
+# CDN начинает их резать, React не грузится и DOM снимается пустым — сэмпл получает
+# ровно 0 не по своей вине. Пути можно переопределить через VENDOR_DIR.
+VENDOR_DIR = os.environ.get("VENDOR_DIR", "/mnt/storage-1/Screenshot2Code/vendor")
+_VENDOR_MAP = {
+    "react.development.js": "react.development.js",
+    "react-dom.development.js": "react-dom.development.js",
+    "babel.js": "babel.js",
+    "cdn.tailwindcss.com": "tailwind.js",
+    "all.min.css": "fontawesome.css",
+}
+
+
+def _vendor_files() -> dict:
+    """{подстрока URL -> локальный файл}; отсутствующие молча пропускаем."""
+    out = {}
+    base = Path(VENDOR_DIR)
+    for needle, fname in _VENDOR_MAP.items():
+        f = base / fname
+        if f.exists():
+            out[needle] = f
+    return out
+
+
+async def _materialize_dom_coro(path: Path, vendor: dict, wait_ms: int, timeout_ms: int) -> str:
+    """Открывает страницу на общем async-браузере и отдаёт DOM после отрисовки."""
+    import functools
+    import threading
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+    handler = functools.partial(SimpleHTTPRequestHandler, directory=str(path.parent))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        browser = await _get_async_browser()
+        page = await browser.new_page(viewport={"width": 1280, "height": 800})
+
+        async def _route(route, request):
+            url = request.url
+            if url.startswith("http://127.0.0.1"):
+                return await route.continue_()
+            for needle, local in vendor.items():
+                if needle in url:
+                    ctype = ("text/css" if local.suffix == ".css"
+                             else "application/javascript")
+                    return await route.fulfill(status=200, content_type=ctype,
+                                               body=local.read_bytes())
+            # Всё прочее внешнее (шрифты, картинки) режем: на вид почти не влияет,
+            # а ожидание сети растягивает прогон и добавляет флаки.
+            return await route.abort()
+
+        if vendor:
+            await page.route("**/*", _route)
+        try:
+            await page.goto(f"http://127.0.0.1:{port}/{path.name}", timeout=60000,
+                            wait_until="load")
+            try:
+                await page.wait_for_function(
+                    "document.body && document.body.innerText.trim().length > 40",
+                    timeout=timeout_ms)
+            except Exception:
+                pass          # страница может быть законно почти пустой
+            await page.wait_for_timeout(wait_ms)
+            return await page.evaluate("document.documentElement.outerHTML")
+        finally:
+            await page.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def materialize_dom(html_path: str, wait_ms: int = 800, timeout_ms: int = 20000) -> dict:
+    """Заменяет HTML-файл на его состояние ПОСЛЕ выполнения JavaScript.
+
+    Метрика Design2Code разбирает статический исходник: `_process_html` перекрашивает
+    текстовые теги в тексте файла, `extract_text_recursive` обходит `soup.body`.
+    У страницы на React в `<body>` лежит только `<div id="root"></div>` — статических
+    текстовых блоков нет, поэтому block_match/text/position/color выходят ровно
+    нулевыми независимо от того, насколько хорошо страница выглядит.
+
+    Три тонкости, все проверены на выводе UI2Code^N:
+
+    1. Работаем через ОБЩИЙ async-браузер (`_run_coro`), а не sync-API. В воркере
+       уже крутится фоновый asyncio-loop для render_many, и sync-Playwright в нём
+       падает с «Sync API inside the asyncio loop» — так терялось 32 сэмпла из 40.
+    2. Страницу отдаём по HTTP, а не через `file://`: Babel не трансформирует
+       инлайновый `<script type="text/babel">` с file-схемы и сам пишет об этом
+       в консоль. С `file://` DOM снимался пустым.
+    3. После снятия DOM скрипты ВЫРЕЗАЕМ. Иначе при следующем открытии страницы
+       (метрика открывает её ещё несколько раз) React заново отрисует `#root`
+       и сотрёт перекраску, которой ищутся блоки.
+    """
+    path = Path(html_path).resolve()
+    before = path.read_text(encoding="utf-8", errors="replace")
+    vendor = _vendor_files()
+    info = {"materialized": False, "len_before": len(before), "len_after": len(before),
+            "vendored": len(vendor)}
+    try:
+        dom = _run_coro(_materialize_dom_coro(path, vendor, wait_ms, timeout_ms))
+        soup = _make_soup(dom)
+        for tag in soup.find_all("script"):
+            tag.decompose()
+        after = str(soup)
+        path.write_text(after, encoding="utf-8")
+        info.update(materialized=True, len_after=len(after))
+    except Exception as e:
+        info["error"] = str(e)[:200]
+    return info
 
 
 def render_html_to_png(html_path: str, png_path: str, overwrite: bool = True) -> bool:

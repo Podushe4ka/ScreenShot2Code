@@ -60,6 +60,7 @@ ScreenShot2Code/
 | `sanity_sweep.sh` | свип по эпохам: 5 эпох, чекпоинт каждую, бенч каждого |
 | `sweep_greedy.sh` | перебенч готовых чекпоинтов в greedy (без переобучения) |
 | `sweep_soft.sh` | мягкий рецепт (lr 5e-6, cosine, warmup) + greedy-бенч каждой эпохи |
+| `sweep_wc2m.sh` | тот же оверфит, но на WebCode2M вместо Design2Code (обучение ещё не проходило — OOM) |
 
 ### `Data/`
 
@@ -76,6 +77,7 @@ ScreenShot2Code/
 | файл | что |
 |---|---|
 | `STRUCTURE.md` | этот файл |
+| `RESULTS.md` | все модели, гиперпараметры и скоры в одной таблице + описание бенчмарков |
 | `storage_inventory.md` | что занимает место на общем диске, что удалено и почему |
 | `experiments/*.md` | по файлу на каждый проведённый эксперимент |
 
@@ -107,6 +109,7 @@ ScreenShot2Code/
 | `d2c-sanity-fit` | рабочий sanity, 15 эпох | [sanity](experiments/2026-08-05-sanity-overfit.md) |
 | `d2c-sweep` | свип по эпохам + перепроверка greedy | [свип](experiments/2026-08-05-sweep-epochs.md), [greedy](experiments/2026-08-06-greedy-recheck.md) |
 | `d2c-sweep-soft` | мягкий рецепт lr 5e-6 | [мягкий рецепт](experiments/2026-08-06-sweep-soft.md) |
+| `wc2m-sweep` | оверфит на WebCode2M: только бенч базы, весов нет | [оверфит на WebCode2M](experiments/2026-08-06-wc2m-overfit.md) |
 | `d2c-compare50`, `smoke-merged` | замеры базы и смоук | [мелкие прогоны](experiments/misc-smoke-and-compare.md) |
 
 Раскладка внутри прогона: веса в `<run_name>/checkpoint-N/`, результаты бенча
@@ -119,9 +122,11 @@ ScreenShot2Code/
 | `webcode2m_1000_split`, `webcode2m_3000_split` | WebCode2M с val-сплитом |
 | `webcode2m_3000` | без сплита |
 | `d2c_short` | 40 коротких Design2Code, drafting-формат — для обучения sanity/свипов |
+| `wc2m_short` | 40 из WebCode2M, тот же формат — для оверфита на коротких таргетах |
 | `d2c_overfit` | первый (неудачный) набор sanity |
 
-`hf_cache/d2c_short_bench` — те же 40 в формате `image`/`text` для бенча.
+`hf_cache/d2c_short_bench` и `hf_cache/wc2m_short_bench` — те же 40 в формате
+`image`/`text` для бенча.
 
 ---
 

@@ -161,6 +161,17 @@ def parse_args():
     parser.add_argument("--max-pixels", type=int, default=2_097_152,
                          help="max_pixels процессора (ДОЛЖЕН совпадать с обучением, иначе "
                               "чекпоинт меряется вне своего распределения — H1).")
+    parser.add_argument("--materialize-dom", action="store_true",
+                         help="Заменять pred.html на состояние DOM ПОСЛЕ выполнения JS. "
+                              "Нужно для моделей, которые пишут React/Vue (напр. UI2Code^N): "
+                              "метрика разбирает статический исходник и у таких страниц не "
+                              "находит текстовых блоков вовсе. По умолчанию ВЫКЛЮЧЕНО, чтобы "
+                              "ранее снятые числа остались сравнимыми.")
+    parser.add_argument("--prompt-file", default=None,
+                         help="файл с текстом промпта; заменяет встроенный PROMPT целиком. "
+                              "Нужен для чужих моделей со своим форматом запроса "
+                              "(напр. UI2Code^N: 'Please generate the corresponding html "
+                              "code for the given UI screenshot.').")
     parser.add_argument("--train-task-id", default=None,
                          help="id ClearML-задачи обучения, из которой взят чекпоинт "
                               "(обычно подхватывается из clearml_task.json рядом с весами).")
@@ -177,8 +188,18 @@ def load_model(model_id_or_path: str, tensor_parallel_size: int, gpu_memory_util
                max_model_len: int, min_pixels: int = 262_144, max_pixels: int = 2_097_152):
     from vllm import LLM
 
+    # Пиксель-бюджет процессора — ДОЛЖЕН совпадать с обучением (H1). Без него
+    # vLLM берёт родное разрешение картинки, и чекпоинт меряется вне трейн-распределения.
+    # НО: min_pixels/max_pixels — параметры Qwen2VL-процессора. У других семейств их
+    # нет (у Glm4vImageProcessor из UI2Code^N бюджет задаётся через size.longest_edge),
+    # и передача неизвестных kwargs роняет загрузку. Поэтому 0 = не передавать вовсе.
+    mm_kwargs = {}
+    if min_pixels > 0:
+        mm_kwargs["min_pixels"] = min_pixels
+    if max_pixels > 0:
+        mm_kwargs["max_pixels"] = max_pixels
     print(f"[run_benchmark] Загружаю модель {model_id_or_path} через vLLM "
-          f"(min_pixels={min_pixels}, max_pixels={max_pixels})...")
+          f"(mm_processor_kwargs={mm_kwargs or 'не заданы, берутся из конфига модели'})...")
     return LLM(
         model=model_id_or_path,
         tensor_parallel_size=tensor_parallel_size,
@@ -186,9 +207,7 @@ def load_model(model_id_or_path: str, tensor_parallel_size: int, gpu_memory_util
         max_model_len=max_model_len,
         trust_remote_code=True,
         limit_mm_per_prompt={"image": 1},
-        # Пиксель-бюджет процессора — ДОЛЖЕН совпадать с обучением (H1). Без него
-        # vLLM берёт родное разрешение картинки, и чекпоинт меряется вне трейн-распределения.
-        mm_processor_kwargs={"min_pixels": min_pixels, "max_pixels": max_pixels},
+        **({"mm_processor_kwargs": mm_kwargs} if mm_kwargs else {}),
     )
 
 PROMPT = (
@@ -246,11 +265,23 @@ def generate_html_batch(llm, images, max_new_tokens: int, enable_thinking: bool,
     # "length" — упёрлись в max_new_tokens (метрики занижены незаслуженно),
     # "stop" при коротком выводе — модель сама выдала EOS раньше времени
     # (ровно так схлопывались чекпоинты жёсткого рецепта: 156-456 байт).
+    # raw_len/clean_len — сколько текста выдала модель и сколько осталось после
+    # extract_html. Расхождение в разы = ответ портится ДО метрики, и без этих
+    # двух чисел такое не видно вовсе (ровно так молча терялось 60-90% вывода
+    # UI2Code^N). Сам сырой текст кладём в info — он сохраняется в pred_raw.html
+    # для тех сэмплов, что попадают в examples/.
     htmls, infos = [], []
     for output in outputs:
         o = output.outputs[0]
-        htmls.append(extract_html(o.text))
-        infos.append({"finish_reason": o.finish_reason, "pred_n_tokens": len(o.token_ids)})
+        clean = extract_html(o.text)
+        htmls.append(clean)
+        infos.append({
+            "finish_reason": o.finish_reason,
+            "pred_n_tokens": len(o.token_ids),
+            "raw_len": len(o.text),
+            "clean_len": len(clean),
+            "_raw_text": o.text,
+        })
     return htmls, infos
 
 
@@ -273,7 +304,8 @@ def prepare_ref_one(idx: int, ref_html: str, sample_dir_str: str) -> dict:
     return info
 
 
-def render_and_score_one(idx: int, pred_html: str, sample_dir_str: str) -> dict:
+def render_and_score_one(idx: int, pred_html: str, sample_dir_str: str,
+                          raw_text: str | None = None, materialize: bool = False) -> dict:
     """Идентично run_benchmark.py — воркер для ProcessPoolExecutor (или прямой
     вызов при num_workers<=1). Импорт render/metrics внутри функции (см.
     комментарий в оригинале про spawn + CUDA)."""
@@ -283,6 +315,15 @@ def render_and_score_one(idx: int, pred_html: str, sample_dir_str: str) -> dict:
 
     sample_dir = _Path(sample_dir_str)
     row = {"idx": idx}
+
+    # Сырой ответ модели — ДО extract_html и до замены плейсхолдеров. Без него
+    # порчу ответа конвейером не отследить: на диске остаётся только результат
+    # обработки, и «модель выдала мусор» неотличимо от «мы его испортили».
+    if raw_text is not None:
+        try:
+            (sample_dir / "pred_raw.html").write_text(raw_text, encoding="utf-8")
+        except Exception:
+            pass
 
     if pred_html is None:
         row["status"] = "generation_error"
@@ -298,6 +339,17 @@ def render_and_score_one(idx: int, pred_html: str, sample_dir_str: str) -> dict:
     clean_html, n_replaced = replace_images_with_placeholder(pred_html)
     pred_html_path.write_text(clean_html, encoding="utf-8")
     row["pred_n_img_replaced"] = n_replaced
+
+    # Страницы, которые рисует JavaScript (React/Vue/…): метрика разбирает
+    # статический исходник и у них не находит ни одного текстового блока.
+    # Здесь подменяем файл на состояние DOM после отрисовки — см. materialize_dom.
+    if materialize:
+        from render import materialize_dom
+        info = materialize_dom(str(pred_html_path))
+        row["materialized"] = info.get("materialized", False)
+        row["len_after_materialize"] = info.get("len_after")
+        if info.get("error"):
+            row["materialize_error"] = info["error"]
 
     try:
         scores = score_pair(str(pred_html_path), str(sample_dir / "ref.html"))
@@ -521,10 +573,13 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
         rows = []
         for i in tqdm(range(n), desc=f"[batch {batch_idx}] Рендер + метрики"):
             sample_dir = batch_dir / f"sample_{i:05d}"
-            row = render_and_score_one(i, pred_html_list[i], str(sample_dir))
+            info = dict(gen_infos[i])
+            raw = info.pop("_raw_text", None)   # в CSV сырой текст не кладём
+            row = render_and_score_one(i, pred_html_list[i], str(sample_dir),
+                                       raw_text=raw, materialize=args.materialize_dom)
             row["ref_n_img_replaced"] = ref_infos[i]["n_images_replaced"]
             row["ref_render_ok"] = ref_infos[i]["render_ok"]
-            row.update(gen_infos[i])
+            row.update(info)
             rows.append(row)
     else:
         from render import close_browser
@@ -547,7 +602,9 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
                                   initializer=_worker_init, initargs=(clip_request_queue,)) as executor:
             futures = {
                 executor.submit(render_and_score_one, i, pred_html_list[i],
-                                 str(batch_dir / f"sample_{i:05d}")): i
+                                 str(batch_dir / f"sample_{i:05d}"),
+                                 gen_infos[i].get("_raw_text"),
+                                 args.materialize_dom): i
                 for i in range(n)
             }
             for future in tqdm(as_completed(futures), total=len(futures),
@@ -559,7 +616,9 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
                     row = {"idx": i, "status": f"worker_error: {e}"}
                 row["ref_n_img_replaced"] = ref_infos[i]["n_images_replaced"]
                 row["ref_render_ok"] = ref_infos[i]["render_ok"]
-                row.update(gen_infos[i])
+                info = dict(gen_infos[i])
+                info.pop("_raw_text", None)   # в CSV сырой текст не кладём
+                row.update(info)
                 rows_by_idx[i] = row
         rows = [rows_by_idx[i] for i in range(n)]
 
@@ -591,7 +650,7 @@ def process_one_batch(llm, batch_samples, batch_idx: int, work_root: Path, examp
         sample_dir = batch_dir / f"sample_{i:05d}"
         dest_dir = example_out_dir / f"sample_{i:05d}"
         dest_dir.mkdir(parents=True, exist_ok=True)
-        for fname in ("pred.html", "pred.png", "ref.html", "ref.png"):
+        for fname in ("pred.html", "pred_raw.html", "pred.png", "ref.html", "ref.png"):
             src = sample_dir / fname
             if src.exists():
                 shutil.copy2(src, dest_dir / fname)
@@ -620,6 +679,14 @@ def append_examples_csv(results_path: Path, examples_df: pd.DataFrame):
 
 def main():
     args = parse_args()
+
+    # Промпт из файла заменяет встроенный: чужие модели обучены на своей формулировке,
+    # и мерить их нашей — значит мерить рассогласование промпта, а не качество вёрстки.
+    if args.prompt_file:
+        global PROMPT
+        PROMPT = Path(args.prompt_file).read_text(encoding="utf-8").strip()
+        print(f"[run_benchmark] Промпт взят из {args.prompt_file} "
+              f"({len(PROMPT)} символов): {PROMPT[:120]!r}")
 
     sys.path.insert(0, str(Path(__file__).parent))
     from tracking import log_benchmark_summary, start_benchmark_task
@@ -761,6 +828,8 @@ def main():
             "repetition_penalty": args.repetition_penalty,
             "max_new_tokens": args.max_new_tokens,
         },
+        "materialize_dom": args.materialize_dom,
+        "prompt_file": args.prompt_file,
         **final_means,
     }
     summary_path = outdir / "summary.json"

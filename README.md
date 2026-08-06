@@ -12,6 +12,7 @@
 | документ | о чём |
 |---|---|
 | [`docs/STRUCTURE.md`](docs/STRUCTURE.md) | карта репозитория и общего диска, грабли окружения — **читать первым** |
+| [`docs/RESULTS.md`](docs/RESULTS.md) | все модели, гиперпараметры и скоры в одной таблице + описание бенчмарков |
 | [`docs/experiments/`](docs/experiments) | что уже проверено и чем закончилось |
 | [`docs/storage_inventory.md`](docs/storage_inventory.md) | что занимает место на `/mnt/storage-1` и что удалено |
 | [`experiments/README.md`](experiments/README.md) | как запускать прогоны |

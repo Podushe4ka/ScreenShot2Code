@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir \
     ftfy \
     regex \
     beautifulsoup4 \
+    html5lib \
     colormath \
     scipy \
     scikit-learn \
