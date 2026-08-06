@@ -126,7 +126,7 @@ else
   say "разрез train/validation..."
   docker run --rm -v "$REPO":/w -v /mnt/storage-1:/storage -w /w \
     --entrypoint /opt/venv/bin/python sft \
-    Data/make_split.py "/storage/Screenshot2Code/data/webcode2m_$TARGET_3K" \
+    Data/converters/make_split.py "/storage/Screenshot2Code/data/webcode2m_$TARGET_3K" \
     "/storage/Screenshot2Code/data/webcode2m_${TARGET_3K}_split" \
     --val-frac 0.05 --seed 42 > "$BASE/logs/pilot/split_3k.log" 2>&1
   say "разрез: rc=$? (лог: $BASE/logs/pilot/split_3k.log)"

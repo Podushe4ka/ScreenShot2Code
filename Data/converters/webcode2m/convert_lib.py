@@ -2,14 +2,14 @@
 """convert_lib.py (WebCode2M) — логика конвертера реального корпуса WebCode2M
 (`xcodemind/webcode2m_purified`) в формат drafting-контракта (`SFT/DATA_FORMAT_CONTRACT.md`).
 
-Отличия от WebSight-конвертера (`Data/drafting/convert_lib.py`):
+Отличия от WebSight-конвертера (`Data/converters/websight/convert_lib.py`):
   • источник — РЕАЛЬНЫЕ pruned-страницы, CSS уже лежит в `<style>`/`style=` (это НЕ Tailwind),
     поэтому `precompile_tailwind` НЕ применяется;
   • страницы могут тянуть внешние ресурсы (JS, `<link>` CSS, шрифты) — для детерминированного
     оффлайн-рендера вырезаем `<script>` и внешние `<link rel=stylesheet>` (инлайновый `<style>`
     остаётся), плюс де-блоб data-URI;
   • всё ОБЩЕЕ (плейсхолдеры, `render_full`, счётчик токенов, схема `FEATURES`) переиспользуется
-    из `Data/drafting/convert_lib.py` — один источник правды, не дублируем.
+    из `Data/converters/websight/convert_lib.py` — один источник правды, не дублируем.
 
 Профили как у drafting: интерактив — `convert.ipynb`, батч — `convert_parallel.py`.
 """

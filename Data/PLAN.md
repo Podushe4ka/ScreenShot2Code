@@ -11,30 +11,30 @@
 |---|---|
 | [`PLAN.md`](PLAN.md) | Этот файл — план работ и дорожная карта |
 | [`list_data.md`](list_data.md) | Каталог датасетов: train-кандидаты, бенчмарки, смежное |
-| [`drafting/`](drafting/) | Drafting-конвертер (`convert_lib` + notebook + parallel + Docker + `view_arrow`) — ветка `data/drafting` |
-| [`pretrain/`](pretrain/) | Стриминговый претрейн-микс датасетов (ветка `data/pretrain`) |
-| [`analysis/`](analysis/) | Этап 0 — EDA корпусов (ноутбуки + заметки + методика метрик) |
+| [`converters/`](converters/) | источник → формат контракта: [`websight/`](converters/websight/), [`webcode2m/`](converters/webcode2m/) + общий [`make_split.py`](converters/make_split.py) |
+| [`eda/`](eda/) | Этап 0 — разведка корпусов (обзоры + [`notebooks/`](eda/notebooks/) + [`tools/`](eda/tools/)) |
 | [`papers/`](papers/) | PDF статей ко всем датасетам и методу ([индекс](papers/README.md)) |
 
-**Ветки Data-трека** (все = `data/analysis` + свои файлы, различаются только вперёд):
-`data/analysis` (общий baseline: анализ + токенные метрики), `data/drafting`
-(+ drafting-конвертер), `data/pretrain` (+ претрейн-микс).
+Претрейн-микс (`pretrain/`) пока не собран — Этап 4.
 
-Формат передачи данных в SFT-трек — контракт `../SFT/DATA_FORMAT_CONTRACT.md`
-(ветка `sft`).
+Формат передачи данных в SFT-трек — контракт [`../SFT/DATA_FORMAT_CONTRACT.md`](../SFT/DATA_FORMAT_CONTRACT.md).
+Раскладка всего репозитория — [`../docs/STRUCTURE.md`](../docs/STRUCTURE.md).
 
-**Статус:** ✅ Этап 0 (разведка + токенные метрики, перепрогон на v0.2) · ▶ Этап 1
-(drafting-конвертер `drafting/` — production работает: параллельный батч через Docker,
+**Статус:** ✅ Этап 0 (разведка + токенные метрики, перепрогон на v0.2) · ✅ Этап 1
+(конвертер работает на обоих источниках: параллельный батч через Docker,
 self-contained, ~5k за пару минут) · ⏳ Этапы 2–4 (рендерер, синтетика, масштаб).
-Работа по drafting — на ветке `data/drafting`.
+
+⚠ Приоритет Этапа 3 (reverse-construction) вырос: дообучение на WebCode2M базу не
+бьёт, и разбор в [`../docs/ROADMAP.md`](../docs/ROADMAP.md) относит причину к самим
+данным, а не к рецепту.
 
 ---
 
 ## 0. Где мы сейчас — Этап 0 (разведка) ЗАВЕРШЁН
 
-- EDA трёх train-кандидатов по 7 метрикам — `analysis/` (`webcode2m.ipynb`,
-  `websight.ipynb`, `webui.ipynb`, методика — `analysis/required_data.md`,
-  результаты/особенности — `analysis/dataset_notes.md`).
+- EDA трёх train-кандидатов по 7 метрикам — `eda/notebooks/` (`webcode2m.ipynb`,
+  `websight.ipynb`, `webui.ipynb`), методика — `eda/required_data.md`,
+  результаты/особенности — `eda/dataset_notes.md`).
 - Каталог источников — `list_data.md` (train-кандидаты + бенчмарки + смежное).
 - Статьи по всем датасетам и методу — `papers/` (индекс в `papers/README.md`).
 
@@ -45,7 +45,7 @@ self-contained, ~5k за пару минут) · ⏳ Этапы 2–4 (ренд�
 (б) генерации SFT/edit/polish данных.
 
 **Токенные результаты (метрика 3 — готово).** Длина кода считается токенайзером
-Qwen (`analysis/token_len.py`). Рабочий `max_length` кода по **сырым** источникам:
+Qwen (`eda/tools/token_len.py`). Рабочий `max_length` кода по **сырым** источникам:
 WebSight v0.2 ~896 (p99=851), **WebCode2M ~9 920** (p99), **WebUI 8 000 @ cap 8k**
 (теряем ~24% — тяжёлый хвост из инлайнового CSS дизайн-систем, не base64).
 ⚠ **Сырое ≠ доставляемое для WebSight:** боевой drafting-таргет конвертера проходит
@@ -54,7 +54,7 @@ WebSight v0.2 ~896 (p99=851), **WebCode2M ~9 920** (p99), **WebUI 8 000 @ cap 8k
 код p99≈**3 815**, +картинка p99≈1 672 → **всего p99≈5 305, рабочий `max_length`≈6144**
 (влезает в SFT-окно 8192). Сырые числа посчитаны **без визуальных токенов**
 (`IMAGE_TOKEN_BUDGET=0`) — реальный бюджет выше на ~1.1–1.2k токенов/картинку при 1280×720.
-Таблица и разбор — `analysis/dataset_notes.md`. Отсюда правило гигиены для реальных данных:
+Таблица и разбор — `eda/dataset_notes.md`. Отсюда правило гигиены для реальных данных:
 **де-блоб (data-URI) + фильтр по токенам** (отсечка = `max_length`). WebUI для MVP не берём.
 
 ---
@@ -119,8 +119,8 @@ WebSight v0.2 ~896 (p99=851), **WebCode2M ~9 920** (p99), **WebUI 8 000 @ cap 8k
 ## 3. Дорожная карта Data-трека
 
 ### Этап 1 — Drafting-датасет по контракту  ◀ ТЕКУЩИЙ ПРИОРИТЕТ (разблокирует SFT MVP)
-Конвертер — папка `drafting/` (логика в `convert_lib.py`; `convert.ipynb` интерактив,
-`convert_parallel.py` батч, `Dockerfile`, инструкция `drafting/README.md`).
+Конвертер — папка `converters/websight/` (логика в `convert_lib.py`; `convert.ipynb` интерактив,
+`convert_parallel.py` батч, `Dockerfile`, инструкция `converters/websight/README.md`).
 Источник: **WebSight v0.2** (`HuggingFaceM4/WebSight`, ~1.92M) — Tailwind, чистая синтетика.
 
 Готово:
@@ -153,7 +153,7 @@ Playwright+Chromium) + метрики `visual_eval_v3_multi`. Переиспол
 
 ### Этап 4 — Масштабирование претрейн-корпуса
 - [ ] свести WebCode2M + WebSight + Web2Code к единому формату пар (форма CSS не важна);
-- [ ] переклассифицировать/разобрать Web2Code (train-usable, ~1.18M) — `analysis/web2code.ipynb`
+- [ ] переклассифицировать/разобрать Web2Code (train-usable, ~1.18M) — `eda/notebooks/web2code.ipynb`
       теми же 7 метриками (переиспользовать streaming из `webcode2m.ipynb`);
 - [ ] микс с общими VLM-задачами для сохранения общих способностей (как в UI2Code^N).
 
@@ -177,5 +177,5 @@ Playwright+Chromium) + метрики `visual_eval_v3_multi`. Переиспол
 - Контракт: `../SFT/DATA_FORMAT_CONTRACT.md` (ветка `sft`)
 - Eval-трек (рендерер, метрики, плейсхолдеры): ветка `Eval`, `Evaluation/Experiments.ipynb`
 - Каталог датасетов: `list_data.md`
-- EDA и метрики: `analysis/`
+- EDA и метрики: `eda/`
 - Статьи: `papers/` (`papers/README.md`)

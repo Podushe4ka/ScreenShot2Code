@@ -2,16 +2,16 @@
 
 Готовит датасет (`task_type="drafting"`, скриншот → HTML) из **реального** корпуса
 WebCode2M (`xcodemind/webcode2m_purified`) в схеме `SFT/DATA_FORMAT_CONTRACT.md`.
-Структура зеркалит `../drafting/`, но под реальные страницы.
+Структура зеркалит `../websight/`, но под реальные страницы.
 
 ## Файлы
 | Файл | Что |
 |---|---|
-| `convert_lib.py` | логика: sanitize внешних ресурсов + де-блоб + плейсхолдеры + рендер. **Переиспользует ядро `../drafting/convert_lib.py`** (плейсхолдеры, `render_full`, токены, `FEATURES`) — один источник правды |
+| `convert_lib.py` | логика: sanitize внешних ресурсов + де-блоб + плейсхолдеры + рендер. **Переиспользует ядро `../websight/convert_lib.py`** (плейсхолдеры, `render_full`, токены, `FEATURES`) — один источник правды |
 | `convert.ipynb` | интерактив (пошагово, рендер через `render_threaded`) |
 | `convert_parallel.py` | батч на многих ядрах (ProcessPool, spawn) |
 
-## Отличия от WebSight-конвертера (`../drafting/`)
+## Отличия от WebSight-конвертера (`../websight/`)
 - источник — реальные pruned-страницы, CSS уже в `<style>`/`style=` → **Tailwind-precompile НЕ применяется**;
 - страницы могут тянуть внешние ресурсы → `sanitize_offline` вырезает `<script>` и внешние
   `<link rel=stylesheet>` (инлайновый `<style>` остаётся) для детерминированного оффлайн-рендера;

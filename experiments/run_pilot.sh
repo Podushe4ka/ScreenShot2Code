@@ -85,7 +85,7 @@ else
   say "ВНИМАНИЕ: в $DS_PATH нет сплита '$EVAL_SPLIT'."
   say "  Есть: $(ls "$DS_PATH" 2>/dev/null | tr '\n' ' ')"
   say "  eval_loss считаться НЕ БУДЕТ. Сделать разрез:"
-  say "    Data/make_split.py $DS_PATH <OUT> --val-frac 0.05"
+  say "    Data/converters/make_split.py $DS_PATH <OUT> --val-frac 0.05"
   say "  Продолжить всё равно: ALLOW_NO_EVAL=1 ./run_pilot.sh"
   [[ "${ALLOW_NO_EVAL:-0}" == "1" ]] || exit 1
 fi

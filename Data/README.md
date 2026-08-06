@@ -1,60 +1,70 @@
 # Data-трек — Screenshot2Code
 
-Сбор, анализ и подготовка данных для дообучения Qwen-VL под генерацию UI по
-скриншотам (drafting / polishing / editing). Методический ориентир — статья
-**UI2Code^N** (`papers/UI2CodeN_2511.08195.pdf`): pretrain → SFT → RL.
+Сбор, анализ и подготовка датасетов для дообучения Qwen-VL под генерацию UI по
+скриншотам. Методический ориентир — статья **UI2Code^N**
+([`papers/UI2CodeN_2511.08195.pdf`](papers/UI2CodeN_2511.08195.pdf)): pretrain → SFT → RL.
 
 ## С чего начать
 
-1. **[`PLAN.md`](PLAN.md)** — план работ, дорожная карта, ключевые решения и открытые
-   вопросы. Главный документ трека — читать первым.
-2. **[`list_data.md`](list_data.md)** — каталог датасетов (train-кандидаты, бенчмарки, смежное).
-3. Хочешь собрать drafting-датасет — [`drafting/README.md`](drafting/README.md).
-4. Отдаёшь данные в SFT — [`drafting/HANDOFF.md`](drafting/HANDOFF.md) + контракт
-   [`../SFT/DATA_FORMAT_CONTRACT.md`](../SFT/DATA_FORMAT_CONTRACT.md).
+1. **[`PLAN.md`](PLAN.md)** — план работ и дорожная карта трека. Главный документ.
+2. **[`list_data.md`](list_data.md)** — каталог источников: train-кандидаты, бенчмарки, смежное.
+3. Собрать датасет — [`converters/`](converters/) (ниже про выбор конвертера).
+4. Отдать данные в SFT — контракт [`../SFT/DATA_FORMAT_CONTRACT.md`](../SFT/DATA_FORMAT_CONTRACT.md)
+   и [`converters/websight/HANDOFF.md`](converters/websight/HANDOFF.md).
+5. Что из этого уже прогнано и с каким результатом — [`../docs/RESULTS.md`](../docs/RESULTS.md),
+   что делать дальше — [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
 
 ## Структура папки
 
 | Путь | Что внутри |
 |---|---|
-| [`PLAN.md`](PLAN.md) | План работ и дорожная карта (этапы 0–4) |
-| [`list_data.md`](list_data.md) | Каталог датасетов |
-| [`analysis/`](analysis/) | **Этап 0** — EDA корпусов: **сводка по всем датасетам ([`datasets_overview.md`](analysis/datasets_overview.md))**, ноутбуки по датасетам, методика метрик (`required_data.md`), заметки (`dataset_notes.md`), токен-счётчик (`token_len.py`), визуальное сравнение (`compare_datasets.py`) |
-| [`drafting/`](drafting/) | **Этап 1** — конвертер WebSight → формат контракта (логика в `convert_lib.py`, батч `convert_parallel.py`, `Dockerfile`, просмотр `view_arrow.py`, передача `HANDOFF.md`) |
+| [`converters/`](converters/) | источник → формат контракта. По папке на датасет + общий финальный шаг |
+| [`converters/websight/`](converters/websight/) | WebSight: ядро логики (`convert_lib.py`), батч через Docker (`convert_parallel.py`, `Dockerfile`), просмотр (`view_arrow.py`), передача в SFT (`HANDOFF.md`) |
+| [`converters/webcode2m/`](converters/webcode2m/) | WebCode2M: реальные страницы. Переиспользует ядро WebSight-конвертера, не дублирует его |
+| [`converters/make_split.py`](converters/make_split.py) | финальный шаг обоих: разрез на `train`/`validation` для `eval_loss` |
+| [`eda/`](eda/) | разведка корпусов: сводка [`datasets_overview.md`](eda/datasets_overview.md), методика метрик [`required_data.md`](eda/required_data.md), особенности [`dataset_notes.md`](eda/dataset_notes.md) |
+| [`eda/notebooks/`](eda/notebooks/) | ноутбуки по датасетам: `webcode2m`, `websight`, `webui` |
+| [`eda/tools/`](eda/tools/) | счётчики и графики: `token_len.py`, `pixel_budget.py`, `plot_hist.py`, `compare_datasets.py` |
 | [`papers/`](papers/) | PDF статей ко всем датасетам и методу ([индекс](papers/README.md)) |
 
-> `pretrain/` (стриминговый претрейн-микс) живёт на ветке `data/pretrain` — см. ниже.
+Не в git (регенерируются, лежат локально): `images/`, `report.html` — выхлоп
+`view_arrow.py`; `websight_drafting_pilot/` — собранный датасет, передаётся диском.
 
-## Ветки трека
+## Почему конвертеры названы по источнику
 
-Три ветки = общий baseline (`analysis/` + `PLAN.md` + `list_data.md`) плюс свои файлы:
+Оба делают одно и то же — приводят пару «скриншот + HTML» к формату контракта, —
+и различаются только тем, откуда берут сырьё. Раньше один назывался `drafting/`
+(по задаче), другой `webcode2m/` (по датасету), и из имён нельзя было понять, что
+это одна и та же операция над разными корпусами.
 
-| Ветка | Добавляет к baseline |
-|---|---|
-| `data/analysis` | только baseline (EDA + токенные метрики) |
-| `data/drafting` | `drafting/` — drafting-конвертер |
-| `data/pretrain` | `pretrain/` — претрейн-микс |
+Задача (drafting / polishing / editing) — это поле в контракте, а не папка:
+polishing- и editing-данные будут собираться теми же конвертерами.
 
-Baseline держим синхронным между ветками вручную (коммиты `sync …`), поэтому его
-структуру меняем осознанно и одинаково во всех трёх.
-
-## Статус
-
-- ✅ **Этап 0** — разведка + токенные метрики (перепрогон на WebSight v0.2).
-- ▶ **Этап 1** — drafting-конвертер работает: параллельный батч через Docker,
-  self-contained, ~5k за пару минут. Готов handoff в SFT.
-- ⏳ **Этапы 2–4** — детерминированный рендерер (переиспользуем eval-трек),
-  reverse-construction синтетика (polishing/editing), масштабирование претрейна.
-
-Подробности и открытые вопросы (главный — единый размер скриншота, §4) — в [`PLAN.md`](PLAN.md).
-
-## Быстрый старт: собрать drafting-датасет
+## Быстрый старт: собрать drafting-датасет из WebSight
 
 ```bash
-# из корня репозитория
-docker build -t ws-conv -f Data/drafting/Dockerfile .
+docker build -t ws-conv -f Data/converters/websight/Dockerfile .
 docker run --rm -v "$PWD":/work --shm-size=2g ws-conv --target 5000 --n-workers 64
 ```
 
-Результат — `Data/websight_drafting_pilot/` (в `.gitignore`; передаётся диском/томом, не
-через git). Дальше — по [`drafting/HANDOFF.md`](drafting/HANDOFF.md).
+Результат — `Data/websight_drafting_pilot/`. Дальше разрезать на сплиты:
+
+```bash
+.venv/bin/python Data/converters/make_split.py Data/websight_drafting_pilot <OUT> --val-frac 0.05
+```
+
+Подробности — [`converters/websight/README.md`](converters/websight/README.md),
+передача в SFT — [`converters/websight/HANDOFF.md`](converters/websight/HANDOFF.md).
+
+## Статус
+
+- ✅ **Этап 0** — разведка корпусов и токенные метрики.
+- ✅ **Этап 1** — drafting-конвертер работает: параллельный батч через Docker,
+  self-contained, ~5k за пару минут. Оба источника (WebSight, WebCode2M) отданы в SFT.
+- ⏳ **Этапы 2–4** — детерминированный рендерер (переиспользуем eval-трек),
+  reverse-construction синтетика, масштабирование претрейна.
+
+⚠ **Главный вывод трека на 6 августа:** дообучение на WebCode2M стабильно **хуже**
+необученной базы, и разбор в [`../docs/ROADMAP.md`](../docs/ROADMAP.md) связывает это
+с самими данными: WebCode2M — pretrain-корпус, а не SFT-набор. Приоритет Этапа 3
+(reverse-construction) от этого сильно вырос.

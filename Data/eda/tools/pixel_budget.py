@@ -10,7 +10,7 @@
   страница 1280xH с площадью > MAX_PIXELS ужимается => падает эфф.ширина => мельчает
   текст. Ниже ~8-11px кегля растровый текст перестаёт читаться моделью.
 
-Значения совпадают с SFT/train/formatting.py и Data/drafting/convert_lib.py.
+Значения совпадают с SFT/train/formatting.py и Data/converters/websight/convert_lib.py.
 
 Использование:
     python pixel_budget.py                 # таблица читаемости + нужные MAX_PIXELS

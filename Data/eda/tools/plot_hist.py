@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """matplotlib-гистограммы длины кода (токены). 3 реальных датасета + WebUI (3 зума)."""
 import csv, glob, os
+from pathlib import Path
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -9,7 +10,8 @@ import pyarrow.parquet as pq
 from transformers import AutoTokenizer
 from datasets import load_from_disk
 
-OUT = "/Users/vyacheslav/Screenshot2Code/ScreenShot2Code/Data/analysis/examples"
+DATA = Path(__file__).resolve().parents[2]          # …/Data
+OUT = str(DATA / "eda" / "examples")
 ACC = "#2f8f9a"; TAIL = "#c07f27"; GRID = "#9aa5ab"; TXT = "#7a848a"; BUD = "#c0503f"
 plt.rcParams.update({
     "text.color": TXT, "axes.labelcolor": TXT, "xtick.color": TXT, "ytick.color": TXT,
@@ -24,7 +26,7 @@ def tlen(texts):
     return np.array(out)
 
 # --- реальные данные ---
-ds = load_from_disk("/Users/vyacheslav/Screenshot2Code/ScreenShot2Code/Data/websight_drafting_pilot")
+ds = load_from_disk(str(DATA / "websight_drafting_pilot"))
 ws = tlen([ds[i]["target_html"] for i in range(min(2000, len(ds)))])
 
 texts = []

@@ -7,7 +7,7 @@
 останавливаясь на SAMPLE_SIZE — по сети уходит лишь префикс (~десятки МБ).
 
 Метрики (DOM / CSS-декларации / домены / токены) — 1-в-1 из webcode2m.ipynb.
-    .venv/bin/python Data/analysis/web2code_stream_json.py
+    .venv/bin/python Data/eda/tools/web2code_stream_json.py
 """
 import io
 import json

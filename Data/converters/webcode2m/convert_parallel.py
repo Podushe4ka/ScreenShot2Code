@@ -2,7 +2,7 @@
 """convert_parallel.py (WebCode2M) — параллельный (многопроцессный) конвертер
 WebCode2M -> формат drafting-контракта.
 
-Зеркалит `Data/drafting/convert_parallel.py`, но:
+Зеркалит `Data/converters/websight/convert_parallel.py`, но:
   • источник и поля берутся из `convert_lib` этой папки (WebCode2M, поле `text`);
   • `process_one` НЕ делает Tailwind-precompile (реальный CSS), зато санитайзит внешние ресурсы.
 

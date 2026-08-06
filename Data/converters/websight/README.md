@@ -22,7 +22,7 @@
 ## Массовая генерация (рекомендуется — через Docker)
 ```bash
 # из корня репозитория
-docker build -t ws-conv -f Data/drafting/Dockerfile .
+docker build -t ws-conv -f Data/converters/websight/Dockerfile .
 docker run --rm -v "$PWD":/work --shm-size=2g ws-conv --target 5000 --n-workers 32
 ```
 Датасет ляжет в `Data/websight_drafting_pilot/` на хосте (WORKDIR образа = `Data/`). ~5000 за пару минут (48/с на 64 воркерах).

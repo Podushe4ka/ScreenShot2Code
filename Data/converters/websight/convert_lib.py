@@ -33,7 +33,7 @@ _ANALYSIS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "anal
 
 
 def count_tokens(text, tokenizer):
-    """Длина текста в токенах. Ленивая обёртка над ../analysis/token_len.py."""
+    """Длина текста в токенах. Ленивая обёртка над ../../eda/tools/token_len.py."""
     if _ANALYSIS not in sys.path:
         sys.path.append(_ANALYSIS)
     from token_len import count_tokens as _ct

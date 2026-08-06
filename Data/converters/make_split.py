@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """make_split.py — разрезать готовый drafting-датасет на train/validation.
 
-Зачем: конвертер (`drafting/convert_parallel.py`, `webcode2m/convert_parallel.py`) отдаёт
+Зачем: конвертер (`websight/convert_parallel.py`, `webcode2m/convert_parallel.py`) отдаёт
 единый `Dataset`, а SFT-трек считает eval_loss по отдельному сплиту. Здесь финальный шаг:
 shuffle -> train_test_split -> `DatasetDict{train, validation}` -> save_to_disk.
 

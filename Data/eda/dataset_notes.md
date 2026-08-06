@@ -11,9 +11,9 @@
 > буфер. Раньше выборка была `.take(N)` «с головы» — детерминированная, но смещённая.
 
 Статус разбора:
-- ✅ [webcode2m.ipynb](webcode2m.ipynb) — WebCode2M / Vision2UI
-- ✅ [webui.ipynb](webui.ipynb) — WebUI
-- ✅ [websight.ipynb](websight.ipynb) — WebSight
+- ✅ [webcode2m.ipynb](notebooks/webcode2m.ipynb) — WebCode2M / Vision2UI
+- ✅ [webui.ipynb](notebooks/webui.ipynb) — WebUI
+- ✅ [websight.ipynb](notebooks/websight.ipynb) — WebSight
 - ✅ web2code — Web2Code (MBZUAI), ~1.18M пар (`web2code_stream_json.py`, стрим 5000 из `Web2Code.json`): код median 669 / p99 1214, DOM 45, CSS-декл 21. Картинки (метрика 5) — в отдельном 30-ГБ zip, по стриму N/A.
 - ⏳ датасет 4 — собранный русский синтетический датасет
 
