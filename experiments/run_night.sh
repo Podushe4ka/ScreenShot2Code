@@ -15,6 +15,7 @@ cd "$(dirname "$0")"
 REPO="$PWD"
 
 BASE=/mnt/storage-1/Screenshot2Code
+mkdir -p "$BASE/logs/pilot"
 DATA_DIR="${DATA_DIR:-$BASE/data}"
 HF_CACHE="${HF_CACHE:-$BASE/hf_cache}"
 CKPT_ROOT="${CKPT_ROOT:-$BASE/checkpoints_exps}"
@@ -34,7 +35,7 @@ N_WORKERS="${N_WORKERS:-96}"
 BENCH_FREE_MB="${BENCH_FREE_MB:-25000}"
 TRAIN_FREE_MB="${TRAIN_FREE_MB:-5000}"
 
-LOG="$BASE/NIGHT.log"
+LOG="$BASE/logs/pilot/NIGHT.log"
 mkdir -p "$BASE"
 say() { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
 phase() { echo | tee -a "$LOG"; say "############ $* ############"; check_disk; }
@@ -119,16 +120,16 @@ else
     -w /w/Data/webcode2m --entrypoint python3 design2code-bench:latest \
     convert_parallel.py --target "$TARGET_3K" --n-workers "$N_WORKERS" \
     --out "/storage/Screenshot2Code/data/webcode2m_$TARGET_3K" \
-    > "$BASE/convert_3k.log" 2>&1
-  say "конвертация: rc=$? (лог: $BASE/convert_3k.log)"
+    > "$BASE/logs/pilot/convert_3k.log" 2>&1
+  say "конвертация: rc=$? (лог: $BASE/logs/pilot/convert_3k.log)"
 
   say "разрез train/validation..."
   docker run --rm -v "$REPO":/w -v /mnt/storage-1:/storage -w /w \
     --entrypoint /opt/venv/bin/python sft \
     Data/make_split.py "/storage/Screenshot2Code/data/webcode2m_$TARGET_3K" \
     "/storage/Screenshot2Code/data/webcode2m_${TARGET_3K}_split" \
-    --val-frac 0.05 --seed 42 > "$BASE/split_3k.log" 2>&1
-  say "разрез: rc=$? (лог: $BASE/split_3k.log)"
+    --val-frac 0.05 --seed 42 > "$BASE/logs/pilot/split_3k.log" 2>&1
+  say "разрез: rc=$? (лог: $BASE/logs/pilot/split_3k.log)"
 fi
 
 if [[ ! -d "$DATA_DIR/webcode2m_${TARGET_3K}_split/validation" ]]; then

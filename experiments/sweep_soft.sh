@@ -14,12 +14,13 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."; REPO="$PWD"   # скрипт лежит в experiments/, работаем от корня репо
 BASE=/mnt/storage-1/Screenshot2Code
+mkdir -p "$BASE/logs/soft"
 LR="${LR:-5e-6}"; EPOCHS="${EPOCHS:-5}"; NPROC="${NPROC:-2}"; TP="${TP:-1}"
 GPUS="${GPUS:-\"device=1,2\"}"          # обучение: обе карты
 BENCH_GPUS="${BENCH_GPUS:-\"device=1\"}"  # бенч: одной хватает
 OUT="$BASE/checkpoints_exps/d2c-sweep-soft"
 BENCH_DS_E=/root/.cache/huggingface/d2c_short_bench   # путь ВНУТРИ образа бенча
-LOG="$BASE/SOFT.log"; say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
+LOG="$BASE/logs/soft/SOFT.log"; say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
 mkchmod(){ docker run --rm -v /mnt/storage-1:/storage --entrypoint bash sft \
              -c "mkdir -p /storage/${1#/mnt/storage-1/} && chmod -R 777 /storage/${1#/mnt/storage-1/}" 2>/dev/null; }
 
@@ -46,7 +47,7 @@ if [[ -z "$(ckpts)" ]]; then
       --lr_scheduler_type cosine --warmup_ratio 0.1 \
       --per_device_train_batch_size 1 --gradient_accumulation_steps 4 \
       --eval_strategy no --save_strategy epoch --save_total_limit "$EPOCHS" \
-      --output_dir /out > "$BASE/soft_train.log" 2>&1
+      --output_dir /out > "$BASE/logs/soft/soft_train.log" 2>&1
   say "обучение: rc=$?"
 fi
 

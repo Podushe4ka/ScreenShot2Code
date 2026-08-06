@@ -7,11 +7,12 @@ set -uo pipefail
 cd "$(dirname "$0")"; REPO="$PWD"
 
 BASE=/mnt/storage-1/Screenshot2Code
+mkdir -p "$BASE/logs/sanity"
 N="${N:-64}"; EPOCHS="${EPOCHS:-12}"; LR="${LR:-1e-5}"
 GPUS="${GPUS:-\"device=0,1\"}"; NPROC="${NPROC:-2}"
 DATA="$BASE/data/d2c_overfit"
 OUT="$BASE/checkpoints_exps/d2c-overfit"
-LOG="$BASE/SANITY.log"
+LOG="$BASE/logs/sanity/SANITY.log"
 say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
 
 # --- 1. собрать датасет из первых N Design2Code (та же выборка, что бенч) ---
@@ -33,10 +34,10 @@ feat = Features({'task_type':Value('string'),'images':Sequence(Image()),
 d = Dataset.from_list(rows, features=feat)
 DatasetDict({'train':d,'validation':d.select(range(min(8,len(d))))}).save_to_disk('/storage/Screenshot2Code/data/d2c_overfit')
 print('готово:', len(d), 'сэмплов')
-" > "$BASE/d2c_build.log" 2>&1
-  say "сборка датасета: rc=$? ($(grep -o 'готово.*' $BASE/d2c_build.log 2>/dev/null))"
+" > "$BASE/logs/sanity/d2c_build.log" 2>&1
+  say "сборка датасета: rc=$? ($(grep -o 'готово.*' $BASE/logs/sanity/d2c_build.log 2>/dev/null))"
 fi
-[[ -d "$DATA/train" ]] || { say "датасет не собрался — см. $BASE/d2c_build.log"; exit 1; }
+[[ -d "$DATA/train" ]] || { say "датасет не собрался — см. $BASE/logs/sanity/d2c_build.log"; exit 1; }
 
 # --- 2. обучение (жёсткий overfit) ---
 if [[ ! -d "$OUT" ]] || ! ls "$OUT"/*/config.json >/dev/null 2>&1; then
@@ -49,11 +50,11 @@ if [[ ! -d "$OUT" ]] || ! ls "$OUT"/*/config.json >/dev/null 2>&1; then
       --num_train_epochs "$EPOCHS" --learning_rate "$LR" \
       --per_device_train_batch_size 1 --gradient_accumulation_steps 4 \
       --eval_strategy no --save_strategy no \
-      --output_dir /out > "$BASE/d2c_train.log" 2>&1
+      --output_dir /out > "$BASE/logs/sanity/d2c_train.log" 2>&1
   say "обучение: rc=$?"
 fi
 WEIGHTS=$(ls -dt "$OUT"/*/ 2>/dev/null | head -1); WEIGHTS="${WEIGHTS%/}"
-[[ -f "$WEIGHTS/config.json" ]] || { say "весов нет — см. $BASE/d2c_train.log"; exit 1; }
+[[ -f "$WEIGHTS/config.json" ]] || { say "весов нет — см. $BASE/logs/sanity/d2c_train.log"; exit 1; }
 say "веса: $WEIGHTS"
 
 # --- 3. бенч базы и overfit на тех же N ---

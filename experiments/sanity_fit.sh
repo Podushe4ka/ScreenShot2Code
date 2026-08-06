@@ -9,12 +9,13 @@
 set -uo pipefail
 cd "$(dirname "$0")"; REPO="$PWD"
 BASE=/mnt/storage-1/Screenshot2Code
+mkdir -p "$BASE/logs/sanity"
 N="${N:-40}"; EPOCHS="${EPOCHS:-15}"; LR="${LR:-2e-5}"; MAXCHARS="${MAXCHARS:-40000}"
 GPUS="${GPUS:-\"device=1,2\"}"; NPROC="${NPROC:-2}"
 TRAIN_DS="$BASE/data/d2c_short"                         # drafting-формат (обучение)
 BENCH_DS="$BASE/hf_cache/d2c_short_bench"               # image/text (под mount HF-кэша)
 OUT="$BASE/checkpoints_exps/d2c-sanity-fit"
-LOG="$BASE/SANITYFIT.log"
+LOG="$BASE/logs/sanity/SANITYFIT.log"
 say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
 
 # Контейнерные пути: внутри docker /mnt/storage-1 смонтирован как /storage.
@@ -41,8 +42,8 @@ d = Dataset.from_list(draft, features=fd)
 DatasetDict({'train':d,'validation':d.select(range(min(6,len(d))))}).save_to_disk('$TRAIN_DS_C')
 Dataset.from_list(bench, features=Features({'image':Image(),'text':Value('string')})).save_to_disk('$BENCH_DS_C')
 print('готово:', len(draft), 'сэмплов')
-" > "$BASE/sfit_build.log" 2>&1
-  say "сборка: $(grep -o 'готово.*' $BASE/sfit_build.log 2>/dev/null || echo 'см. sfit_build.log')"
+" > "$BASE/logs/sanity/sfit_build.log" 2>&1
+  say "сборка: $(grep -o 'готово.*' $BASE/logs/sanity/sfit_build.log 2>/dev/null || echo 'см. sfit_build.log')"
 fi
 NREAL=$(docker run --rm -v /mnt/storage-1:/storage --entrypoint /opt/venv/bin/python sft -c "from datasets import load_from_disk;print(len(load_from_disk('$BENCH_DS_C')))" 2>/dev/null)
 [[ -n "$NREAL" ]] || { say "датасет не собрался"; exit 1; }
@@ -57,7 +58,7 @@ if ! ls "$OUT"/*/config.json >/dev/null 2>&1; then
       --config configs/full_ft_qwen3_5_4b.yaml --dataset_name /data/d2c_short \
       --num_train_epochs "$EPOCHS" --learning_rate "$LR" --lr_scheduler_type constant --warmup_ratio 0 \
       --per_device_train_batch_size 1 --gradient_accumulation_steps 4 \
-      --eval_strategy no --save_strategy no --output_dir /out > "$BASE/sfit_train.log" 2>&1
+      --eval_strategy no --save_strategy no --output_dir /out > "$BASE/logs/sanity/sfit_train.log" 2>&1
   say "обучение: rc=$?"
 fi
 W=$(ls -dt "$OUT"/*/ 2>/dev/null | head -1); W="${W%/}"

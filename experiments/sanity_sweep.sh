@@ -6,6 +6,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"; REPO="$PWD"
 BASE=/mnt/storage-1/Screenshot2Code
+mkdir -p "$BASE/logs/sweep"
 LR="${LR:-2e-5}"; EPOCHS="${EPOCHS:-5}"; NPROC="${NPROC:-2}"
 TP="${TP:-$NPROC}"                                      # TP бенча != NPROC обучения
 GPUS="${GPUS:-\"device=0,1\"}"
@@ -16,7 +17,7 @@ OUT="$BASE/checkpoints_exps/d2c-sweep"
 BENCH_DS_C=/storage/Screenshot2Code/hf_cache/d2c_short_bench   # для образа sft
 BENCH_DS_E=/root/.cache/huggingface/d2c_short_bench            # для образа бенча
 NREAL=$(docker run --rm -v /mnt/storage-1:/storage --entrypoint /opt/venv/bin/python sft -c "from datasets import load_from_disk;print(len(load_from_disk('$BENCH_DS_C')))" 2>/dev/null)
-LOG="$BASE/SWEEP.log"; say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
+LOG="$BASE/logs/sweep/SWEEP.log"; say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
 mkchmod(){ docker run --rm -v /mnt/storage-1:/storage --entrypoint bash sft -c "mkdir -p /storage/${1#/mnt/storage-1/} && chmod -R 777 /storage/${1#/mnt/storage-1/}" 2>/dev/null; }
 
 say "свип ОДНИМ прогоном: $EPOCHS эпох, чекпоинт/эпоху | $NREAL сэмплов | lr $LR | база 0.835"
@@ -39,7 +40,7 @@ if [[ -z "$(ckpts)" ]]; then
       --num_train_epochs "$EPOCHS" --learning_rate "$LR" --lr_scheduler_type constant --warmup_ratio 0 \
       --per_device_train_batch_size 1 --gradient_accumulation_steps 4 \
       --eval_strategy no --save_strategy epoch --save_total_limit "$EPOCHS" \
-      --output_dir /out > "$BASE/sweep_train.log" 2>&1
+      --output_dir /out > "$BASE/logs/sweep/sweep_train.log" 2>&1
   say "обучение: rc=$?"
 fi
 

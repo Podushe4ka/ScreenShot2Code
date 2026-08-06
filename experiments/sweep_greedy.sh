@@ -13,12 +13,13 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."; REPO="$PWD"   # скрипт лежит в experiments/, работаем от корня репо
 BASE=/mnt/storage-1/Screenshot2Code
+mkdir -p "$BASE/logs/greedy"
 OUT="$BASE/checkpoints_exps/d2c-sweep"
 RUN="$OUT/full_ft_qwen3_5_4b_s42_20260805-201901"
 TP="${TP:-1}"; GPUS="${GPUS:-\"device=1\"}"
 BENCH_DS_E=/root/.cache/huggingface/d2c_short_bench      # путь ВНУТРИ образа бенча
 BASE_MODEL="${BASE_MODEL:-Qwen/Qwen3.5-4B}"
-LOG="$BASE/GREEDY.log"; say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
+LOG="$BASE/logs/greedy/GREEDY.log"; say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
 mkchmod(){ docker run --rm -v /mnt/storage-1:/storage --entrypoint bash sft \
              -c "mkdir -p /storage/${1#/mnt/storage-1/} && chmod -R 777 /storage/${1#/mnt/storage-1/}" 2>/dev/null; }
 
