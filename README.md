@@ -13,9 +13,11 @@
 |---|---|
 | [`docs/STRUCTURE.md`](docs/STRUCTURE.md) | карта репозитория и общего диска, грабли окружения — **читать первым** |
 | [`docs/RESULTS.md`](docs/RESULTS.md) | все модели, гиперпараметры и скоры в одной таблице + описание бенчмарков |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | разбор результатов на фоне UI2Code^N и что делать дальше |
 | [`docs/experiments/`](docs/experiments) | что уже проверено и чем закончилось |
 | [`docs/storage_inventory.md`](docs/storage_inventory.md) | что занимает место на `/mnt/storage-1` и что удалено |
 | [`experiments/README.md`](experiments/README.md) | как запускать прогоны |
+| [`Data/README.md`](Data/README.md) | сбор датасетов: конвертеры и разведка корпусов |
 | [`SFT/DATA_FORMAT_CONTRACT.md`](SFT/DATA_FORMAT_CONTRACT.md) | контракт формата датасета |
 
 ## Раскладка
