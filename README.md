@@ -28,7 +28,7 @@ Evaluation/   бенч Design2Code (vLLM + playwright + CLIP), образ `desig
 Data/         сборка датасетов и анализ
 experiments/  оркестраторы прогонов (.sh), запускаются на хосте
 docs/         документация
-RL/           задел, пока пусто
+RL/           GRPO-пайплайн на WebCode2M (verl)
 ```
 
 Всё, что на серверах, гоняется **только через docker** — подробности и
