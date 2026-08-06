@@ -15,9 +15,15 @@ images/
 report.html
 verify/
 
-# вывод analysis/compare_datasets.py
-Data/analysis/*.png
+# вывод eda/compare_datasets.py
+Data/eda/*.png
 *bench_results*
+
+# выхлоп прогонов на серверах (результаты живут на /mnt/storage-1, не в git)
+exps-*/
+*.out
+Data/verify_*/
+Data/webcode2m_pilot/
 
 # креды (ClearML, HF) — НИКОГДА в git
 .env
