@@ -181,7 +181,19 @@ def render_full(html_text, width=RENDER_WIDTH):
         # self-contained (внешних запросов нет), а networkidle всё равно ждёт 500мс "тишины"
         # на каждой странице (~574мс vs ~67мс на пустой сети — замер в истории коммита).
         page.set_content(html_text, wait_until="load")
-        png = page.screenshot(full_page=True)
+        # Ретрай на первом захвате. Chromium сразу после старта браузера иногда отвечает
+        # `Protocol error (Page.captureScreenshot): Unable to capture screenshot` — гонка
+        # инициализации, а не дефект страницы: ТОТ ЖЕ html вторым в очереди снимается
+        # штатно. Воспроизведено на пустой странице. Без ретрая случайно бракуется первая
+        # страница каждого прогона, и брак выглядит как «страница не рендерится».
+        for attempt in range(3):
+            try:
+                png = page.screenshot(full_page=True)
+                break
+            except Exception:
+                if attempt == 2:
+                    raise
+                page.wait_for_timeout(400)
     finally:
         page.close()
     img = PILImage.open(io.BytesIO(png)).convert("RGB")
