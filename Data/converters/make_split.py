@@ -48,8 +48,11 @@ def main():
     reloaded = load_from_disk(args.out)
     assert set(reloaded) == {"train", "validation"}, f"неожиданные сплиты: {list(reloaded)}"
     assert len(reloaded["train"]) and len(reloaded["validation"]), "пустой сплит после разреза"
-    tr = {s["target_html"] for s in reloaded["train"]}
-    va = {s["target_html"] for s in reloaded["validation"]}
+    # select_columns обязателен: перебор строк целиком декодирует КАЖДЫЙ PNG
+    # (колонка images — фича Image), и приёмка на 13k сэмплах занимает четверть
+    # часа вместо минуты, хотя нужен здесь только текст.
+    tr = {s["target_html"] for s in reloaded["train"].select_columns(["target_html"])}
+    va = {s["target_html"] for s in reloaded["validation"].select_columns(["target_html"])}
     overlap = len(tr & va)
     print(f"[split] train={len(reloaded['train'])}  validation={len(reloaded['validation'])}  "
           f"(val-frac={args.val_frac}, seed={args.seed}) -> {args.out}")
