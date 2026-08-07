@@ -27,6 +27,7 @@ sys.path.insert(0, str(REPO / "Data" / "converters" / "websight"))
 
 from convert_lib import ahash  # noqa: E402
 from renderlib import count_nodes, render_page, screenshot_stats  # noqa: E402
+from slop import names as slop_names, scan as slop_scan  # noqa: E402
 
 # Плейсхолдер обязан совпадать посимвольно с тем, что подставляет
 # replace_images_with_placeholder в бенче и в конвертерах.
@@ -152,6 +153,11 @@ def process_one(brief: dict, raw_path: Path, out_dir: Path, work: Path) -> dict:
             f"узлов {rec['dom_nodes']} вне тира {brief['tier']} ({lo}-{hi})")
 
     rec["placeholders"] = raw.count(PLACEHOLDER_SIG)
+    # Машинные дефолты («AI slop») — ОТЧЁТ, не отбраковка: часть приёмов законна в
+    # приборной панели и незаконна на лендинге, решает человек. Метрика важна потому,
+    # что slop это корреляция: страницы скатываются к одному шаблону, и разнообразие
+    # набора падает. См. Data/converters/synth/slop.py.
+    rec["slop"] = slop_scan(raw)
 
     # Байты — только справочно. Полоса target_bytes в ТЗ это подсказка генератору
     # «насколько крупную страницу писать», а не критерий приёмки: она несогласуема
@@ -257,6 +263,14 @@ def main() -> int:
                   f"(бюджет кода {CODE_BUDGET_TOKENS})")
         nodes = [r["dom_nodes"] for r in ok]
         print(f"DOM-узлов: p50={pct(nodes,.5)} p95={pct(nodes,.95)} max={max(nodes)}")
+
+        nm = slop_names()
+        pages_with = Counter(t for r in ok for t in r.get("slop", {}))
+        if pages_with:
+            clean = sum(1 for r in ok if not r.get("slop"))
+            print(f"машинные дефолты (отчёт, не отбраковка): чистых {clean}/{len(ok)}")
+            for tid, n in pages_with.most_common(6):
+                print(f"  {tid} {nm[tid]:<42} {n:>3} стр. ({100 * n // len(ok)}%)")
     return 0
 
 
