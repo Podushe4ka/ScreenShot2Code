@@ -8,7 +8,7 @@ from datasets import Dataset, DatasetDict, load_from_disk
 
 logger = logging.getLogger(__name__)
 
-ALLOWED = {"drafting"}  # , "polishing", "editing"
+ALLOWED = {"drafting", "polishing", "editing"}
 
 
 def load_sft_dataset(

@@ -14,6 +14,36 @@ DRAFTING_PROMPT = (
     "Output ONLY the raw HTML code, with no explanation and no markdown code fences."
 )
 
+# Второй стиль вывода — React + Tailwind с CDN. Он появился вместе с синтетическим
+# набором (Data/converters/synth), где часть страниц написана именно так: это стиль
+# выхлопа UI2Code^N (React+JSX+Tailwind в 40/40 замеренных сэмплов, docs/RESULTS.md).
+#
+# ЗАЧЕМ ОТДЕЛЬНЫЙ ПРОМПТ. В наборе смешаны два стиля вывода, и без разделяющей
+# инструкции один и тот же скриншот отображался бы в два разных валидных таргета —
+# противоречивый супервижн, на котором модель усредняет и портит оба стиля.
+# Стиль берётся из колонки `impl`; её отсутствие означает старый набор
+# (WebSight/WebCode2M) и трактуется как static — иначе такие наборы сломались бы.
+DRAFTING_PROMPT_STATIC = DRAFTING_PROMPT
+DRAFTING_PROMPT_REACT = (
+    "You are an expert front-end developer. Look at this webpage screenshot and "
+    "write a SINGLE HTML file that reproduces the layout, text, and colors as closely "
+    "as possible using React and Tailwind CSS from a CDN: load react, react-dom and "
+    "@babel/standalone, put the components in a <script type=\"text/babel\"> block, "
+    "style with Tailwind utility classes, and mount into <div id=\"root\">. "
+    "Use plain gray placeholder boxes instead of any real images and draw icons as "
+    "inline <svg>. "
+    "Output ONLY the raw HTML code, with no explanation and no markdown code fences."
+)
+
+_DRAFTING_BY_IMPL = {
+    "static_inline": DRAFTING_PROMPT_STATIC,
+    "react_cdn": DRAFTING_PROMPT_REACT,
+}
+
+
+def drafting_prompt_for(example) -> str:
+    return _DRAFTING_BY_IMPL.get(example.get("impl") or "", DRAFTING_PROMPT_STATIC)
+
 POLISHING_PROMPT = (
     "You are an expert front-end developer. You are given TWO screenshots: the "
     "FIRST is the TARGET design the page should match; the SECOND is the CURRENT "
@@ -75,7 +105,7 @@ def to_message(example):
                 "role": "user",
                 "content": [
                     {"type": "image"},
-                    {"type": "text", "text": DRAFTING_PROMPT},
+                    {"type": "text", "text": drafting_prompt_for(example)},
                 ],
             },
             {

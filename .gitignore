@@ -28,3 +28,9 @@ Data/webcode2m_pilot/
 # креды (ClearML, HF) — НИКОГДА в git
 .env
 *.env
+
+# Синтетический SFT-набор (Data/converters/synth + Data/generators/synth).
+# vendor/ — локальные копии CDN-библиотек, тянутся fetch_vendor.sh.
+# synth_pilot/ — сиды, сгенерированные страницы, скриншоты, готовый датасет.
+Data/vendor/
+Data/synth_pilot/

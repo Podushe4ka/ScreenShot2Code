@@ -14,22 +14,19 @@
 
 import argparse
 import json
+import os
 import re
-import shutil
 import sys
 import tempfile
 from collections import Counter
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO / "Evaluation"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(REPO / "Data" / "converters" / "websight"))
 
-import numpy as np  # noqa: E402
-from PIL import Image as PILImage  # noqa: E402
-
-import render as ev_render  # noqa: E402
-from convert_lib import ahash, render_full  # noqa: E402
+from convert_lib import ahash  # noqa: E402
+from renderlib import count_nodes, render_page, screenshot_stats  # noqa: E402
 
 # Плейсхолдер обязан совпадать посимвольно с тем, что подставляет
 # replace_images_with_placeholder в бенче и в конвертерах.
@@ -50,7 +47,21 @@ _FORBIDDEN_TAGS = ("<iframe", "<noscript", "<object", "<embed")
 # файл валиден, линт проходит, а учиться не на чем.
 MIN_STD = 8.0
 MIN_COLORS = 24
-MIN_HEIGHT, MAX_HEIGHT = 400, 6000
+
+# Потолок высоты продиктован пиксель-бюджетом, а не вкусом. При MAX_PIXELS=2_097_152
+# (SFT/train/formatting.py:51) и ширине рендера 1280:
+#   * h = 1638 px  -> 2.10 Мп, нативный масштаб, ужатия нет вообще;
+#   * h = 2048 px  -> 2.62 Мп, линейное ужатие 0.89 — текст ещё читаем;
+#   * h = 3300 px  -> 4.22 Мп, ужатие 0.71 — мелкий текст в таблицах теряется.
+# Учить модель воспроизводить текст, которого не видно на входе, бессмысленно: она
+# получает штраф за то, чего не могла прочитать. Поэтому сложность набираем ПЛОТНОСТЬЮ
+# (колонки, таблицы, боковые панели), а не длиной простыни.
+MIN_HEIGHT, MAX_HEIGHT = 400, int(os.environ.get("SYNTH_MAX_HEIGHT", 2048))
+
+# Бюджет кода в токенах — из SFT/configs/gen.py: max_length 16384 = 14176 (код)
+# + 2048 (визуальные токены при MAX_PIXELS 2.10 Мп) + ~160 (промпт).
+CODE_BUDGET_TOKENS = int(os.environ.get("SYNTH_CODE_BUDGET_TOKENS", 14176))
+TOKENIZER_ID = os.environ.get("SYNTH_TOKENIZER", "Qwen/Qwen3-VL-8B-Instruct")
 
 
 def lint(raw: str, brief: dict) -> list[str]:
@@ -81,28 +92,35 @@ def lint(raw: str, brief: dict) -> list[str]:
             bad.append('react_cdn без <script type="text/babel">')
         if "cdn.tailwindcss.com" not in raw:
             bad.append("react_cdn без Tailwind")
-    lo, hi = brief["target_bytes"]
-    n = len(raw.encode("utf-8"))
-    if not (lo * 0.6 <= n <= hi * 1.7):
-        bad.append(f"размер {n} Б вне полосы тира {brief['tier']} ({lo}-{hi})")
     if "fa-" in raw and "font-awesome" not in raw.lower():
         bad.append("классы fa-* (шрифты не вендорятся, отрендерятся квадраты)")
     return bad
 
 
-def count_nodes(html_text: str) -> int:
-    soup = ev_render._make_soup(html_text)
-    body = soup.body or soup
-    return sum(1 for _ in body.find_all(True))
+# Токенайзер тот же, что в конвертерах (convert_lib.TOKENIZER_ID_DEFAULT). Грузим лениво:
+# при работе без сети/кеша считать токены не обязательно, а рендерить надо всё равно.
+_TOK = {}
 
 
-def screenshot_stats(img: PILImage.Image) -> dict:
-    a = np.asarray(img.convert("RGB"))
-    return {
-        "w": img.width, "h": img.height,
-        "std": round(float(a.std()), 2),
-        "colors": int(len(np.unique(a.reshape(-1, 3), axis=0))),
-    }
+def count_tokens(text: str, model_id: str) -> int | None:
+    """Длина target_html в токенах. Возвращает None, если токенайзер недоступен.
+
+    Именно токены, а не байты, — настоящий бюджет: в SFT/configs/gen.py на код отводится
+    CODE_BUDGET_TOKENS=14176 из max_length 16384 (остальное — 2048 визуальных токенов и
+    ~160 на промпт). Байты для этого негодны: у react_cdn исходник компактнее
+    отрисованного DOM (данные разворачиваются через .map()), у static_inline — почти
+    совпадает, поэтому одна и та же полоса байт означает для двух стилей разное.
+    """
+    if model_id not in _TOK:
+        try:
+            from transformers import AutoTokenizer
+            _TOK[model_id] = AutoTokenizer.from_pretrained(model_id)
+        except Exception as e:
+            print(f"  ! токенайзер {model_id} недоступен ({type(e).__name__}), "
+                  f"счёт токенов пропущен", file=sys.stderr)
+            _TOK[model_id] = None
+    tok = _TOK[model_id]
+    return None if tok is None else len(tok(text, add_special_tokens=False)["input_ids"])
 
 
 def process_one(brief: dict, raw_path: Path, out_dir: Path, work: Path) -> dict:
@@ -113,24 +131,19 @@ def process_one(brief: dict, raw_path: Path, out_dir: Path, work: Path) -> dict:
     rec["bytes"] = len(raw.encode("utf-8"))
     rec["reasons"] += lint(raw, brief)
 
-    # --- рендер ---
-    if brief["impl"] == "react_cdn":
-        tmp = work / f"{brief['id']}.html"
-        tmp.write_text(raw, encoding="utf-8")
-        info = ev_render.materialize_dom(str(tmp))
-        rec["materialized"] = bool(info.get("materialized"))
-        if not rec["materialized"]:
-            rec["reasons"].append(f"материализация не удалась: {info.get('error', '?')[:120]}")
-            rendered = raw
-        else:
-            rendered = tmp.read_text(encoding="utf-8", errors="replace")
-            # Прирост длины — дешёвый признак того, что React действительно отрисовал:
-            # при пустом #root DOM почти не растёт.
-            if info["len_after"] < info["len_before"] * 1.2:
-                rec["reasons"].append("DOM почти не вырос — похоже, React не отрисовал")
-    else:
-        rendered = raw
-        rec["materialized"] = None
+    # --- рендер (асимметрия react_cdn живёт в renderlib.render_page) ---
+    try:
+        img, rendered, info = render_page(raw, brief["impl"], work, brief["id"])
+    except Exception as e:
+        rec["reasons"].append(f"рендер упал: {type(e).__name__}: {str(e)[:120]}")
+        rec["status"] = "reject"
+        return rec
+
+    rec["materialized"] = info["materialized"]
+    if info["materialized"] is False:
+        rec["reasons"].append(f"материализация не удалась: {str(info.get('error'))[:120]}")
+    elif not info["grew"]:
+        rec["reasons"].append("DOM почти не вырос — похоже, React не отрисовал")
 
     rec["dom_nodes"] = count_nodes(rendered)
     lo, hi = brief["dom_nodes"]
@@ -140,12 +153,14 @@ def process_one(brief: dict, raw_path: Path, out_dir: Path, work: Path) -> dict:
 
     rec["placeholders"] = raw.count(PLACEHOLDER_SIG)
 
-    try:
-        img = render_full(rendered)
-    except Exception as e:
-        rec["reasons"].append(f"рендер упал: {type(e).__name__}: {str(e)[:120]}")
-        rec["status"] = "reject"
-        return rec
+    # Байты — только справочно. Полоса target_bytes в ТЗ это подсказка генератору
+    # «насколько крупную страницу писать», а не критерий приёмки: она несогласуема
+    # сразу с impl (react компактнее на узел) и с языком (UTF-8 даёт +8-13% на
+    # кириллице и CJK — замерено на калибровке). Решает число узлов и бюджет токенов.
+    rec["tokens"] = count_tokens(raw, TOKENIZER_ID)
+    if rec["tokens"] and rec["tokens"] > CODE_BUDGET_TOKENS:
+        rec["reasons"].append(
+            f"{rec['tokens']} токенов > бюджета кода {CODE_BUDGET_TOKENS} — не влезет в max_length")
 
     png = out_dir / f"{brief['id']}.png"
     img.save(png)
@@ -207,10 +222,20 @@ def main() -> int:
             r["status"] = "reject"
             r["reasons"].append("near-dup: совпал average-hash с другой страницей")
 
+    # Манифест СЛИВАЕМ, а не перезаписываем: при прогоне с --only иначе теряются записи
+    # обо всех остальных страницах, и следующий же шаг конвейера видит набор из двух
+    # строк вместо трёхсот. Порядок — по id, чтобы файл был стабилен между прогонами.
     manifest = out_dir / "manifest.jsonl"
+    merged = {}
+    if manifest.exists():
+        for line in manifest.open(encoding="utf-8"):
+            old = json.loads(line)
+            merged[old["id"]] = old
+    for r in recs:
+        merged[r["id"]] = r
     with manifest.open("w", encoding="utf-8") as w:
-        for r in recs:
-            w.write(json.dumps(r, ensure_ascii=False) + "\n")
+        for pid in sorted(merged):
+            w.write(json.dumps(merged[pid], ensure_ascii=False) + "\n")
 
     ok = [r for r in recs if r["status"] == "ok"]
     print(f"\nпринято {len(ok)}/{len(recs)} ({100*len(ok)/max(len(recs),1):.0f}%)  -> {manifest}")
@@ -220,9 +245,18 @@ def main() -> int:
         for reason, n in why.most_common():
             print(f"  {n:>3}  {reason}")
     if ok:
-        sizes = sorted(r["bytes"] for r in ok)
-        q = lambda p: sizes[min(int(p * len(sizes)), len(sizes) - 1)]  # noqa: E731
-        print(f"размер принятых, Б: p50={q(.5)} p95={q(.95)} max={sizes[-1]}")
+        def pct(vals, p):
+            vals = sorted(vals)
+            return vals[min(int(p * len(vals)), len(vals) - 1)]
+
+        sizes = [r["bytes"] for r in ok]
+        print(f"размер принятых, Б: p50={pct(sizes,.5)} p95={pct(sizes,.95)} max={max(sizes)}")
+        toks = [r["tokens"] for r in ok if r.get("tokens")]
+        if toks:
+            print(f"токенов: p50={pct(toks,.5)} p95={pct(toks,.95)} max={max(toks)} "
+                  f"(бюджет кода {CODE_BUDGET_TOKENS})")
+        nodes = [r["dom_nodes"] for r in ok]
+        print(f"DOM-узлов: p50={pct(nodes,.5)} p95={pct(nodes,.95)} max={max(nodes)}")
     return 0
 
 

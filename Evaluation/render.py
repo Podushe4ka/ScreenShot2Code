@@ -314,10 +314,19 @@ def replace_images_with_placeholder(html_text: str) -> tuple[str, int]:
 # CDN начинает их резать, React не грузится и DOM снимается пустым — сэмпл получает
 # ровно 0 не по своей вине. Пути можно переопределить через VENDOR_DIR.
 VENDOR_DIR = os.environ.get("VENDOR_DIR", "/mnt/storage-1/Screenshot2Code/vendor")
+# Ключ — ПОДСТРОКА URL, поэтому минифицированные варианты надо перечислять отдельно:
+# "babel.min.js" не содержит подстроки "babel.js", и такой запрос раньше уходил в
+# route.abort(). JSX оставался нетрансформированным, DOM снимался пустым, сэмпл получал
+# 0 — при том что unpkg/jsdelivr отдают именно babel.min.js, это самый ходовой URL.
+# Проверено на пробнике: с ".../babel.js" страница рендерится, с ".../babel.min.js" —
+# ровно один цвет на скриншоте. Порядок словаря значения не имеет, ключи независимы.
 _VENDOR_MAP = {
     "react.development.js": "react.development.js",
+    "react.production.min.js": "react.production.min.js",
     "react-dom.development.js": "react-dom.development.js",
+    "react-dom.production.min.js": "react-dom.production.min.js",
     "babel.js": "babel.js",
+    "babel.min.js": "babel.js",
     "cdn.tailwindcss.com": "tailwind.js",
     "all.min.css": "fontawesome.css",
 }
