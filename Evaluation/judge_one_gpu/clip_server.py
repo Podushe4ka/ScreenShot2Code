@@ -2,15 +2,12 @@
 clip_server.py — постоянный процесс с ОДНОЙ копией CLIP-модели на GPU,
 батчующий inference-запросы от N параллельных CPU-воркеров рендера/метрик.
 
-Проблема, которую это решает: раньше metrics.py грузил CLIP при импорте
-модуля, а render_and_score_one выполнялся в ProcessPoolExecutor с
---num-workers процессами — то есть каждый воркер = отдельный интерпретатор
-= отдельная копия CLIP на GPU, и каждый вызов _calculate_clip_similarity_
-with_blocks делал forward с batch_size=1. Итог: до num_workers копий весов
-в VRAM одновременно и GPU большую часть времени просто ждёт по одному
-изображению за раз от каждого воркера — классический anti-pattern для
-GPU-инференса (throughput определяется размером батча, а не числом
-процессов, которые его дёргают).
+Проблема, которую это решает: если CLIP грузится напрямую в каждом воркере
+--num-workers процессов (ProcessPoolExecutor) — это до num_workers копий
+весов в VRAM одновременно, и каждый forward идёт с batch_size=1, GPU большую
+часть времени просто ждёт по одному изображению за раз от каждого воркера —
+классический anti-pattern для GPU-инференса (throughput определяется
+размером батча, а не числом процессов, которые его дёргают).
 
 Архитектура:
   - ОДИН процесс ClipServer, запускается один раз в начале run_benchmark_batched
@@ -73,10 +70,20 @@ class ClipRequest:
         self.reply_conn = reply_conn
 
 
-def _server_loop(request_queue: mp.Queue, clip_batch_size: int, ready_event, device_str: str):
+def _server_loop(request_queue: mp.Queue, clip_batch_size: int, ready_event, device_str: str,
+                  gpu_index: str = None):
     """Тело процесса-сервера. Импорт torch/clip только здесь — не в главном
     процессе (тот же принцип, что и в остальном коде: тяжёлые GPU-импорты
-    внутри функции, которая реально выполняется в целевом процессе)."""
+    внутри функции, которая реально выполняется в целевом процессе).
+
+    gpu_index (если задан) проставляет CUDA_VISIBLE_DEVICES ДО импорта torch
+    в этом процессе — CLIP и vLLM делят одну физическую GPU (см. RUNNING.md),
+    без явного pin сюда могла бы попасть GPU 0 хоста по умолчанию torch, даже
+    если --gpu-index указывает на другую карту, на которой реально крутится
+    vllm serve."""
+    if gpu_index is not None:
+        import os as _os
+        _os.environ["CUDA_VISIBLE_DEVICES"] = gpu_index
     import torch
     import clip as clip_pkg
     from PIL import Image
@@ -152,7 +159,7 @@ def _server_loop(request_queue: mp.Queue, clip_batch_size: int, ready_event, dev
             except Exception as e:
                 # Битый рендер/файл — не роняем весь под-батч, просто
                 # отвечаем этому конкретному запросу ошибкой (score_pair на
-                # стороне воркера словит это как metric_error, как и раньше).
+                # стороне воркера словит это как metric_error).
                 try:
                     req.reply_conn.send(("error", str(e)))
                     req.reply_conn.close()
@@ -194,18 +201,25 @@ class ClipServer:
     request_queue, который нужно передать воркерам (через initializer пула
     процессов — см. run_benchmark_batched.py)."""
 
-    def __init__(self, clip_batch_size: int = 256, device: str = None):
+    def __init__(self, clip_batch_size: int = 256, device: str = None, gpu_index: str = None):
+        """gpu_index: индекс физической GPU (для CUDA_VISIBLE_DEVICES в
+        дочернем процессе) ДОЛЖЕН совпадать с --gpu-index, который
+        используется для vllm serve (см. run_benchmark_batched.py/
+        vllm_server_manager.py), иначе CLIP и vLLM окажутся на разных
+        физических картах хоста. Если None, процесс наследует
+        CUDA_VISIBLE_DEVICES от родителя."""
         if device is None:
             import torch
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.clip_batch_size = clip_batch_size
         self.device = device
+        self.gpu_index = gpu_index
         ctx = mp.get_context("spawn")
         self.request_queue: mp.Queue = ctx.Queue()
         self._ready_event = ctx.Event()
         self._process = ctx.Process(
             target=_server_loop,
-            args=(self.request_queue, self.clip_batch_size, self._ready_event, self.device),
+            args=(self.request_queue, self.clip_batch_size, self._ready_event, self.device, self.gpu_index),
             daemon=True,
         )
 

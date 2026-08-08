@@ -1,0 +1,7 @@
+streamlit>=1.38
+transformers @ git+https://github.com/huggingface/transformers.git
+accelerate
+torch
+pillow
+beautifulsoup4
+playwright
