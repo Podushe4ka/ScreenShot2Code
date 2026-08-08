@@ -1,0 +1,24 @@
+{
+  "next_batch_idx": 1,
+  "dataset_offset": 2000,
+  "n_generation_errors": 0,
+  "n_metric_errors": 0,
+  "n_other_errors": 0,
+  "n_baseline_errors": 1,
+  "n_judge_errors": 1,
+  "accumulator": {
+    "sums": {
+      "block_match": 1905.2654223876766,
+      "text": 1983.1898448147845,
+      "position": 1644.178240198038,
+      "color": 1736.7779238273426,
+      "clip": 1852.91796875,
+      "final_score": 1792.4885575553476,
+      "final_score_arithmetic": 1824.4658799955682
+    },
+    "count": 2000,
+    "judge_wins_checkpoint": 925,
+    "judge_wins_baseline": 1074,
+    "judge_count": 1999
+  }
+}
