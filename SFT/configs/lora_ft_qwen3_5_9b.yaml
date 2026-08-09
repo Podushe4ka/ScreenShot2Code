@@ -34,7 +34,7 @@ output_dir: sft-output/lora_ft_qwen3_5_9b
 run_name: lora_ft_qwen3_5_9b
 per_device_train_batch_size: 4
 per_device_eval_batch_size: 4
-gradient_accumulation_steps: 8
+gradient_accumulation_steps: 3
 learning_rate: 0.0002
 weight_decay: 0.01
 use_peft: true
@@ -49,3 +49,5 @@ lora_target_modules:
 - gate_proj
 - up_proj
 - down_proj
+max_tokens_per_batch: 65536
+max_batch_size: 12

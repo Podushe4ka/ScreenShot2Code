@@ -4,8 +4,7 @@
 
 `max_length` здесь вычисляется, а не задаётся числом: он складывается из длины
 кода, накладных расходов промпта и визуального бюджета картинки, а последний
-зависит от модели. Одно и то же число на все модели неизбежно оказывается
-неверным для части из них.
+зависит от модели.
 """
 
 import math
@@ -21,7 +20,7 @@ N_GPUS = 2
 
 TARGET_EFF_BATCH = 64
 
-TOKEN_BATCHING = False
+TOKEN_BATCHING = True
 
 TARGET_EFF_TOKENS = 474_000
 
@@ -31,7 +30,7 @@ PROMPT_OVERHEAD_TOKENS = 160
 
 MAX_LENGTH_ROUND_TO = 64
 
-
+MAX_BATCH_MULTIPLIER = 3
 
 TARGET_MODULES = [
     "q_proj", "k_proj", "v_proj", "o_proj",
@@ -128,17 +127,13 @@ def _accum_tokens(max_tokens_per_batch: int) -> int:
 
 def _token_batching(bs: int, m: dict) -> dict:
     """Ключи батчинга по токенам. Пусто, пока TOKEN_BATCHING выключен.
-
-    Бюджет равен нынешнему потолку памяти bs * max_length, поэтому переход не
-    меняет требований к VRAM. per_device_train_batch_size остаётся в конфиге:
-    из него DeepSpeed заполняет train_micro_batch_size_per_gpu, данные он не
-    режет, так что значение становится косметически неверным, но безвредным.
     """
     if not TOKEN_BATCHING:
         return {}
     budget = bs * max_length_for(m)
     return {
         "max_tokens_per_batch": budget,
+        "max_batch_size": bs * MAX_BATCH_MULTIPLIER,
         "gradient_accumulation_steps": _accum_tokens(budget),
     }
 

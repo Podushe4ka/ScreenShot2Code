@@ -36,9 +36,10 @@ class ProfileCallback(TrainerCallback):
     прогревается аллокатор, и они забивают собой весь топ.
     """
 
-    def __init__(self, trace_path: str | None, mem_snapshot: str | None = None):
+    def __init__(self, trace_path: str | None, mem_snapshot: str | None = None, sync_debug: bool | False = False):
         self.trace_path = trace_path
         self.mem_snapshot = mem_snapshot
+        self.sync_debug = sync_debug
         self.prof = None
         self.printed = False
 
@@ -50,9 +51,9 @@ class ProfileCallback(TrainerCallback):
         self.prof = profile(
             activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
             schedule=schedule(wait=WAIT, warmup=WARMUP, active=ACTIVE, repeat=1),
-            record_shapes=False,
+            record_shapes=True,
             profile_memory=False,
-            with_stack=False,
+            with_stack=True,
         )
         self.prof.start()
 
@@ -60,7 +61,10 @@ class ProfileCallback(TrainerCallback):
         if self.prof is None:
             return
         self.prof.step()
+        if self.sync_debug and state.global_step == WAIT + WARMUP:
+            torch.cuda.set_sync_debug_mode('warn')
         if state.global_step >= WAIT + WARMUP + ACTIVE and not self.printed:
+            torch.cuda.set_sync_debug_mode('default')
             self._report(args)
             control.should_training_stop = True
 
@@ -78,8 +82,6 @@ class ProfileCallback(TrainerCallback):
         stats = self.prof.key_averages()
         print("\n================ топ по self CUDA time ================")
         print(stats.table(sort_by="self_cuda_time_total", row_limit=TOP_N))
-        # Узкое место — процессор (CPU-время вдвое больше GPU), а в сортировке по
-        # CUDA операции, жрущие CPU и почти не трогающие карту, в топ не попадают.
         print("\n================ топ по self CPU time ================")
         print(stats.table(sort_by="self_cpu_time_total", row_limit=TOP_N))
 
@@ -107,6 +109,7 @@ def main(argv=None):
 
     # chrome trace — через переменную окружения, чтобы не смешивать свои
     # аргументы с дataclass-полями TrlParser
+    sync_debug = bool(os.environ.get("SYNC_DEBUG")) and training_args.process_index == 0
     trace_path = os.environ.get("TRACE_PATH") or None
     mem_snapshot = os.environ.get("MEM_SNAPSHOT") or None
     if mem_snapshot and training_args.process_index != 0:
@@ -121,7 +124,7 @@ def main(argv=None):
     training_args.logging_steps = 1
 
     trainer = build_trainer(script_args, training_args, model_args, batching_args)
-    trainer.add_callback(ProfileCallback(trace_path, mem_snapshot))
+    trainer.add_callback(ProfileCallback(trace_path, mem_snapshot, sync_debug))
     trainer.train()
 
 
