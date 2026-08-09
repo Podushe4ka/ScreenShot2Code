@@ -1,7 +1,10 @@
-MODEL_CHECKPOINT=Qwen/Qwen3.5-9B \
+MODEL_CHECKPOINT=/mnt/storage-1/ScreenShot2Code/model_weights/train_res_s42_20260729-185222 \
 MODEL_BASELINE=Qwen/Qwen3.5-4B \
 MODEL_JUDGE=Qwen/Qwen3.5-4B \
-GPU_INDEX=1 VLLM_PORT=8001 \
-GPU_MEMORY_UTILIZATION=0.85 \
-RENDER_WORKERS=60 RENDER_TIMEOUT_MS=240000 \
-    ./run.sh --n-samples 5000 --batch-size 1000 --num-workers 90 
+GPU_INDEX=0 VLLM_PORT=8006 \
+GPU_MEMORY_UTILIZATION=0.9 \
+RENDER_WORKERS=80 RENDER_TIMEOUT_MS=240000 \
+    ./run.sh --n-samples 2000 --batch-size 2000 --num-workers 90 
+
+
+MODEL_CHECKPOINT=/mnt/storage-1/ScreenShot2Code/model_weights/train_res_s42_20260729-185222 MODEL_BASELINE=Qwen/Qwen3.5-4B MODEL_JUDGE=Qwen/Qwen3.5-4B GPU_INDEX=3 VLLM_PORT=8006 GPU_MEMORY_UTILIZATION=0.9 RENDER_WORKERS=80 RENDER_TIMEOUT_MS=240000     ./run.sh --n-samples 2000 --batch-size 2000 --num-workers 90

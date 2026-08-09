@@ -11,17 +11,23 @@ final_score_arithmetic, через metrics.score_pair против ref).
 (третья модель) получает ref.png + pred чекпоинта + pred baseline и решает,
 какой ближе к ref — итог: winrate чекпоинта относительно baseline.
 
-Одна физическая GPU — три модели на ней одновременно не помещаются, поэтому
-на КАЖДОМ батче они грузятся и выгружаются по очереди (см.
-vllm_server_manager.py):
+Одна физическая GPU — три модели на ней одновременно не помещаются, вес
+модели (checkpoint/baseline/judge) грузится и выгружается по очереди на
+каждом батче (см. vllm_server_manager.py). Но там, где два соседних шага не
+делят GPU-VRAM модели (browser/CPU-рендер против vLLM-деплоя), они идут
+параллельно в двух потоках оркестрации, а не строго последовательно:
 
     1. Поднять checkpoint  -> сгенерировать HTML по всему батчу -> погасить
-    2. Рендер эталона + рендер и 5 официальных метрик чекпоинта (Playwright +
-       CLIP — GPU от vLLM в этот момент уже свободен, см. ниже про CLIP)
-    3. Поднять baseline    -> сгенерировать HTML по всему батчу -> погасить
-       Рендер baseline (только PNG, без метрик)
-    4. Поднять judge       -> pairwise-сравнение по всему батчу -> погасить
-    5. Следующий батч -> снова с шага 1
+    2. || Рендер эталона + рендер и 5 официальных метрик чекпоинта (Playwright
+         + CLIP — GPU от vLLM в этот момент уже свободен, см. ниже про CLIP)
+       || Поднять baseline -> сгенерировать HTML по всему батчу
+       (не пересекаются по ресурсу — идут одновременно)
+    4. || Рендер baseline (только PNG, без метрик)
+       || Поднять judge (только загрузка весов — сам judge-инференс ждёт PNG)
+    5. Judge: pairwise-сравнение по всему батчу -> погасить
+    6. Следующий батч -> снова с шага 1 (запись results.csv/progress.json
+       предыдущего батча уходит в фоновый поток и может продолжаться, пока
+       уже идёт генерация checkpoint следующего батча — см. main())
 
 Один HTTP-порт (--vllm-port, дефолт 8001) переиспользуется для всех трёх
 моделей по очереди — vllm_client.VLLMClient не знает о переключениях, просто
@@ -31,7 +37,8 @@ vllm_server_manager.py):
 CLIP-сервер (clip_server.py, для метрики clip у чекпоинта) — единственное
 исключение из "по очереди": маленький (~350MB VRAM) отдельный процесс,
 стартует один раз в начале всего прогона и живёт до конца, деля GPU с
-текущей vLLM-моделью.
+текущей vLLM-моделью — в том числе в моменты, когда сама vLLM-модель уже
+грузится параллельно с рендером (шаги 2 и 4 выше).
 
 Этап рендер+метрики чекпоинта — единственный CPU/browser-bound этап (на
 сэмпл до 6 скриншотов, см. metrics.visual_eval_v3_multi), поэтому его
@@ -158,7 +165,7 @@ def parse_args():
     parser.add_argument("--max-new-tokens", type=int, default=8192)
     parser.add_argument("--judge-max-new-tokens", type=int, default=512,
                          help="max_tokens для ответа судьи (JSON {winner} — короткий).")
-    parser.add_argument("--generation-concurrency", type=int, default=128,
+    parser.add_argument("--generation-concurrency", type=int, default=64,
                          help="Сколько запросов на генерацию HTML слать в vLLM-сервер конкурентно "
                               "с клиента (см. VLLMClient.chat_batch) — сервер сам батчует их через "
                               "continuous batching, это верхний предел на клиентской стороне.")
@@ -167,7 +174,7 @@ def parse_args():
     parser.add_argument("--shuffle-buffer-size", type=int, default=10_000,
                          help="buffer_size для ds.shuffle() в streaming-режиме HF datasets.")
     parser.add_argument("--enable-thinking", action="store_true")
-    parser.add_argument("--num-workers", type=int, default=64,
+    parser.add_argument("--num-workers", type=int, default=80,
                          help="Параллельные процессы (ProcessPoolExecutor) для judge (этап 5) — "
                               "чисто I/O-bound HTTP-запросы к судье, реальная нагрузка на CPU/GPU "
                               "минимальна, можно ставить высоко. Для рендер-этапов (2 и 4, "
@@ -185,7 +192,7 @@ def parse_args():
                          help="Таймаут одного page.goto/page.screenshot в рендере, мс. По умолчанию "
                               "render.DEFAULT_RENDER_TIMEOUT_MS (переопределяется также через "
                               "переменную окружения D2C_RENDER_TIMEOUT_MS).")
-    parser.add_argument("--render-retries", type=int, default=1,
+    parser.add_argument("--render-retries", type=int, default=3,
                          help="Сколько ДОПОЛНИТЕЛЬНЫХ попыток делать на сбойном рендере (с "
                               "пересозданием браузера перед повтором) — 0 отключает повтор.")
     parser.add_argument("--clip-batch-size", type=int, default=256,
@@ -571,24 +578,24 @@ def process_one_batch(server_manager, batch_samples, batch_idx: int,
     каталог этого батча — целиком удаляется в конце, кроме файлов,
     скопированных в examples_root.
 
-    Модели грузятся и выгружаются последовательно внутри этого батча через
     server_manager (VLLMServerManager, один и тот же объект переиспользуется
-    между батчами — держит текущее состояние "какая модель сейчас поднята",
-    чтобы switch_to() не перезапускал её впустую, если она уже нужная):
+    между батчами) переключает модель на GPU последовательно — на ней
+    физически может быть поднята только одна модель за раз. Но этапы,
+    которые НЕ делят GPU-VRAM модели (browser/CPU-рендер, деплой следующей
+    модели), выполняются параллельно в отдельных потоках оркестрации
+    (ThreadPoolExecutor(max_workers=2) вокруг каждой пары):
 
         1. switch_to(checkpoint) -> generate_html_batch (чекпоинт)
-        2. рендер эталона + рендер/метрики чекпоинта (ProcessPoolExecutor,
-           browser-bound, конкурентность --render-workers — GPU уже
-           свободен от vLLM, CLIP по-прежнему на GPU как маленький
-           постоянный процесс, не vllm serve)
-        3. switch_to(baseline) -> generate_html_batch (baseline)
-        4. рендер baseline (ProcessPoolExecutor, --render-workers, без CLIP)
-        5. switch_to(judge) -> pairwise judge (ProcessPoolExecutor,
-           --num-workers — чисто I/O-bound HTTP на тот же порт, теперь
-           отвечает judge)
-
-    Каждый ProcessPoolExecutor свой на этап — так процессы этапа 2 не висят
-    без дела, ожидая, пока поднимется baseline на этапе 3.
+        2. || рендер эталона + рендер/метрики чекпоинта (browser-bound,
+           --render-workers, CLIP как отдельный постоянный GPU-процесс)
+           || switch_to(baseline) -> generate_html_batch (baseline, vLLM VRAM)
+           — не пересекаются по ресурсу, идут одновременно в двух потоках
+        4. || рендер baseline (browser-bound, --render-workers)
+           || switch_to(judge) (только загрузка весов — деплой)
+           — сам judge-инференс ждёт PNG с диска, поэтому не может начаться
+           раньше конца рендера, но деплой (VRAM) от рендера не зависит
+        5. judge: pairwise-сравнение (ProcessPoolExecutor, --num-workers —
+           чисто I/O-bound HTTP на тот же порт, модель уже поднята шагом выше)
 
     Время каждого этапа печатается сразу по его завершении (не одним блоком
     в конце батча) и разбито на deploy_sec (switch_to — загрузка весов) и
@@ -631,101 +638,144 @@ def process_one_batch(server_manager, batch_samples, batch_idx: int,
     _log_stage("checkpoint_generation", _deploy_sec, time.perf_counter() - _t1)
 
     # =====================================================================
-    # ЭТАП 2: рендер эталона + рендер/метрики чекпоинта — GPU свободен от vLLM
+    # ЭТАП 2 || ЭТАП 3: рендер+метрики checkpoint ПАРАЛЛЕЛЬНО с деплоем и
+    # генерацией baseline.
+    #
+    # Ресурсы не пересекаются: этап 2 — CPU/browser (свой ProcessPoolExecutor,
+    # свои воркер-процессы с собственным браузером-синглтоном, см. render.py)
+    # + CLIP через отдельный постоянный GPU-процесс; этап 3 — vLLM VRAM
+    # (baseline) в ГЛАВНОМ процессе. GPU в этот момент делят CLIP (уже
+    # рассчитан на сосуществование с vLLM, см. --gpu-memory-utilization) и
+    # baseline — они физически разные процессы/выделения VRAM, конфликта по
+    # устройству нет. Единственная общая зависимость — оба читают из
+    # batch_samples/pred_html_checkpoint, которые уже готовы к этому моменту;
+    # этап 3 не читает НИЧЕГО из результатов этапа 2, так что зависимости
+    # по данным нет вообще, только независимая работа на разных ресурсах.
+    #
+    # Синхронизация: этап 2 идёт в отдельном потоке (ThreadPoolExecutor на
+    # оркестрацию, не путать с ProcessPoolExecutor внутри самого этапа) —
+    # GIL это не проблема, поток почти всё время блокируется на
+    # ProcessPoolExecutor.submit/as_completed или на HTTP-ожидании, не на
+    # CPU-работе самого потока. Этап 3 выполняется в главном потоке как
+    # раньше. process_one_batch ждёт оба перед этапом 4.
     # =====================================================================
-    _t0 = time.perf_counter()
-    scoring_rows_by_idx = {}
-    from render import close_browser
-    close_browser()
-    import multiprocessing as mp
-    from concurrent.futures import ProcessPoolExecutor, as_completed
-    ctx = mp.get_context("spawn")
-    print(f"[batch {batch_idx}] Эталон+метрики чекпоинта: {n} сэмплов на "
-          f"{args.render_workers} browser-воркерах (CLIP через общий сервер)...")
-    with ProcessPoolExecutor(max_workers=args.render_workers, mp_context=ctx,
-                              initializer=_worker_init_scoring,
-                              initargs=(clip_request_queue,)) as executor:
-        futures = {}
-        for i in range(n):
-            fut = executor.submit(
-                process_sample_scoring, i, batch_samples[i]["text"],
-                pred_html_checkpoint[i], str(batch_dir / f"sample_{i:05d}"),
-                args.render_timeout_ms, args.render_retries)
-            futures[fut] = i
-        for future in tqdm(as_completed(futures), total=len(futures),
-                            desc=f"[batch {batch_idx}] Эталон + метрики чекпоинта"):
-            i = futures[future]
-            try:
-                scoring_rows_by_idx[i] = future.result()
-            except Exception as e:
-                scoring_rows_by_idx[i] = {"idx": i, "status": f"worker_error: {e}"}
-    _work_sec = time.perf_counter() - _t0
-    timing["checkpoint_scoring_sec"] = _work_sec
-    n_render_timeouts = sum(
-        1 for r in scoring_rows_by_idx.values()
-        if r.get("ref_render_fail_reason") == "timeout"
-    )
-    print(f"[batch {batch_idx}] Эталон+метрики чекпоинта: {_work_sec:.1f}с "
-          f"({n_render_timeouts} таймаутов рендера эталона)")
-
-    # =====================================================================
-    # ЭТАП 3: baseline — генерация HTML
-    # =====================================================================
-    _t0 = time.perf_counter()
-    server_manager.switch_to(args.model_baseline, label="baseline",
-                              log_level=os.environ.get("D2C_BASELINE_LOG_LEVEL", "INFO"))
-    _deploy_sec = time.perf_counter() - _t0
-    baseline_client = VLLMClient(server_manager.base_url, args.model_baseline)  # switch_to уже дождался /health
-    print(f"[batch {batch_idx}] Генерирую HTML для {n} сэмплов: baseline ({args.model_baseline})...")
-    _t1 = time.perf_counter()
-    try:
-        pred_html_baseline = generate_html_batch(
-            baseline_client, images, args.max_new_tokens, args.enable_thinking,
-            concurrency=args.generation_concurrency,
-            progress_label=f"batch {batch_idx} baseline",
+    def _run_stage2_scoring():
+        _t0 = time.perf_counter()
+        rows_by_idx = {}
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        ctx = mp.get_context("spawn")
+        print(f"[batch {batch_idx}] Эталон+метрики чекпоинта: {n} сэмплов на "
+              f"{args.render_workers} browser-воркерах (CLIP через общий сервер)...")
+        with ProcessPoolExecutor(max_workers=args.render_workers, mp_context=ctx,
+                                  initializer=_worker_init_scoring,
+                                  initargs=(clip_request_queue,)) as executor:
+            futures = {}
+            for i in range(n):
+                fut = executor.submit(
+                    process_sample_scoring, i, batch_samples[i]["text"],
+                    pred_html_checkpoint[i], str(batch_dir / f"sample_{i:05d}"),
+                    args.render_timeout_ms, args.render_retries)
+                futures[fut] = i
+            for future in tqdm(as_completed(futures), total=len(futures),
+                                desc=f"[batch {batch_idx}] Эталон + метрики чекпоинта"):
+                i = futures[future]
+                try:
+                    rows_by_idx[i] = future.result()
+                except Exception as e:
+                    rows_by_idx[i] = {"idx": i, "status": f"worker_error: {e}"}
+        _work_sec = time.perf_counter() - _t0
+        n_render_timeouts = sum(
+            1 for r in rows_by_idx.values() if r.get("ref_render_fail_reason") == "timeout"
         )
-    except Exception as e:
-        print(f"[batch {batch_idx}] Ошибка батчевой генерации (baseline): {e}")
-        pred_html_baseline = [None] * n
-    del images
-    _log_stage("baseline_generation", _deploy_sec, time.perf_counter() - _t1)
+        print(f"[batch {batch_idx}] Эталон+метрики чекпоинта: {_work_sec:.1f}с "
+              f"({n_render_timeouts} таймаутов рендера эталона)")
+        return rows_by_idx, _work_sec
 
-    # =====================================================================
-    # ЭТАП 4: рендер baseline (без метрик)
-    # =====================================================================
-    _t0 = time.perf_counter()
-    baseline_rows_by_idx = {}
+    def _run_stage3_baseline_generation():
+        _t0 = time.perf_counter()
+        server_manager.switch_to(args.model_baseline, label="baseline",
+                                  log_level=os.environ.get("D2C_BASELINE_LOG_LEVEL", "INFO"))
+        _deploy_sec = time.perf_counter() - _t0
+        client = VLLMClient(server_manager.base_url, args.model_baseline)  # switch_to уже дождался /health
+        print(f"[batch {batch_idx}] Генерирую HTML для {n} сэмплов: baseline ({args.model_baseline})...")
+        _t1 = time.perf_counter()
+        try:
+            html = generate_html_batch(
+                client, images, args.max_new_tokens, args.enable_thinking,
+                concurrency=args.generation_concurrency,
+                progress_label=f"batch {batch_idx} baseline",
+            )
+        except Exception as e:
+            print(f"[batch {batch_idx}] Ошибка батчевой генерации (baseline): {e}")
+            html = [None] * n
+        return html, _deploy_sec, time.perf_counter() - _t1
+
     from render import close_browser
-    close_browser()
-    import multiprocessing as mp
-    from concurrent.futures import ProcessPoolExecutor, as_completed
-    ctx = mp.get_context("spawn")
-    print(f"[batch {batch_idx}] Рендер baseline: {n} сэмплов на {args.render_workers} browser-воркерах...")
-    with ProcessPoolExecutor(max_workers=args.render_workers, mp_context=ctx) as executor:
-        futures = {}
-        for i in range(n):
-            fut = executor.submit(render_sample_baseline, i, pred_html_baseline[i],
-                                   str(batch_dir / f"sample_{i:05d}"),
-                                   args.render_timeout_ms, args.render_retries)
-            futures[fut] = i
-        for future in tqdm(as_completed(futures), total=len(futures),
-                            desc=f"[batch {batch_idx}] Рендер baseline"):
-            i = futures[future]
-            try:
-                baseline_rows_by_idx[i] = future.result()
-            except Exception as e:
-                baseline_rows_by_idx[i] = {"idx": i, "baseline_status": f"worker_error: {e}"}
-    _work_sec = time.perf_counter() - _t0
-    timing["baseline_render_sec"] = _work_sec
-    print(f"[batch {batch_idx}] Рендер baseline: {_work_sec:.1f}с")
+    from concurrent.futures import ThreadPoolExecutor
+    close_browser()  # закрываем браузер главного процесса до форка воркеров этапа 2
+
+    with ThreadPoolExecutor(max_workers=2) as stage_pool:
+        fut_stage2 = stage_pool.submit(_run_stage2_scoring)
+        fut_stage3 = stage_pool.submit(_run_stage3_baseline_generation)
+        scoring_rows_by_idx, checkpoint_scoring_sec = fut_stage2.result()
+        pred_html_baseline, baseline_deploy_sec, baseline_work_sec = fut_stage3.result()
+
+    del images
+    timing["checkpoint_scoring_sec"] = checkpoint_scoring_sec
+    _log_stage("baseline_generation", baseline_deploy_sec, baseline_work_sec)
 
     # =====================================================================
-    # ЭТАП 5: judge
+    # ЭТАП 4 || деплой judge: рендер baseline ПАРАЛЛЕЛЬНО с загрузкой весов
+    # судьи (только switch_to — сам judge-инференс читает pred_baseline.png
+    # с диска, поэтому не может начаться раньше, чем рендер этапа 4
+    # завершится; но деплой (загрузка весов в VRAM) от этого рендера не
+    # зависит, поэтому его можно начинать сразу).
     # =====================================================================
-    _t0 = time.perf_counter()
-    server_manager.switch_to(args.judge_model, label="judge",
-                              log_level=os.environ.get("D2C_JUDGE_LOG_LEVEL", "DEBUG"))
-    _deploy_sec = time.perf_counter() - _t0
+    def _run_stage4_baseline_render():
+        _t0 = time.perf_counter()
+        rows_by_idx = {}
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        ctx = mp.get_context("spawn")
+        print(f"[batch {batch_idx}] Рендер baseline: {n} сэмплов на {args.render_workers} browser-воркерах...")
+        with ProcessPoolExecutor(max_workers=args.render_workers, mp_context=ctx) as executor:
+            futures = {}
+            for i in range(n):
+                fut = executor.submit(render_sample_baseline, i, pred_html_baseline[i],
+                                       str(batch_dir / f"sample_{i:05d}"),
+                                       args.render_timeout_ms, args.render_retries)
+                futures[fut] = i
+            for future in tqdm(as_completed(futures), total=len(futures),
+                                desc=f"[batch {batch_idx}] Рендер baseline"):
+                i = futures[future]
+                try:
+                    rows_by_idx[i] = future.result()
+                except Exception as e:
+                    rows_by_idx[i] = {"idx": i, "baseline_status": f"worker_error: {e}"}
+        _work_sec = time.perf_counter() - _t0
+        print(f"[batch {batch_idx}] Рендер baseline: {_work_sec:.1f}с")
+        return rows_by_idx, _work_sec
+
+    def _run_judge_deploy():
+        _t0 = time.perf_counter()
+        server_manager.switch_to(args.judge_model, label="judge",
+                                  log_level=os.environ.get("D2C_JUDGE_LOG_LEVEL", "DEBUG"))
+        return time.perf_counter() - _t0
+
+    close_browser()  # снова закрываем браузер главного процесса до форка воркеров этапа 4
+
+    with ThreadPoolExecutor(max_workers=2) as stage_pool:
+        fut_stage4 = stage_pool.submit(_run_stage4_baseline_render)
+        fut_judge_deploy = stage_pool.submit(_run_judge_deploy)
+        baseline_rows_by_idx, baseline_render_sec = fut_stage4.result()
+        judge_deploy_sec = fut_judge_deploy.result()
+
+    timing["baseline_render_sec"] = baseline_render_sec
+
+    # =====================================================================
+    # ЭТАП 5: judge (модель уже поднята — деплой пришёлся на этап 4 выше)
+    # =====================================================================
     judge_url = server_manager.base_url
     os.environ["D2C_JUDGE_URL"] = judge_url
     os.environ["D2C_JUDGE_MODEL"] = args.judge_model
@@ -762,7 +812,7 @@ def process_one_batch(server_manager, batch_samples, batch_idx: int,
                 judge_rows_by_idx[i] = future.result()
             except Exception as e:
                 judge_rows_by_idx[i] = {"idx": i, "judge_status": f"worker_error: {e}"}
-    _log_stage("judge", _deploy_sec, time.perf_counter() - _t1)
+    _log_stage("judge", judge_deploy_sec, time.perf_counter() - _t1)
 
     # --- склеиваем три набора построчных результатов в один df ---
     rows = []
@@ -904,6 +954,38 @@ def main():
 
     rng = random.Random(args.seed + 1)  # для выбора examples — отдельно от judge-монетки и shuffle датасета
 
+    # Между-батчевая финализация (запись examples_df в results.csv,
+    # progress.json, time_results.txt) — чистый диск-I/O, не читает и не
+    # пишет ничего, что нужно следующему батчу (accumulator/счётчики
+    # ошибок обновляются СИНХРОННО, до постановки в очередь — см. ниже,
+    # именно они определяют resume-состояние в памяти). Поэтому саму
+    # запись на диск можно делать в фоновом потоке, пока следующий батч
+    # уже начал этап 1 (switch_to(checkpoint) + генерация) — GPU/vLLM не
+    # ждёт, пока допишутся файлы предыдущего батча.
+    #
+    # Пул из ОДНОГО потока и ручной wait перед следующей постановкой в
+    # очередь — не для параллельности внутри финализации (там просто
+    # несколько последовательных дисковых операций), а чтобы гарантировать
+    # строгий порядок записи батчей (N, затем N+1, ...) и чтобы обработка
+    # следующего батча не могла обогнать запись двух батчей назад, если
+    # диск медленный — это создало бы неограниченно растущую очередь
+    # фоновых задач без обратного давления.
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+    finalize_pool = _TPE(max_workers=1)
+    pending_finalize = None
+
+    def _finalize_batch_on_disk(examples_df, progress, batch_label, duration,
+                                 checkpoint_gen_sec, checkpoint_scoring_sec,
+                                 baseline_gen_sec, baseline_render_sec, judge_sec):
+        append_examples_csv(results_path, examples_df)
+        save_progress(progress_path, progress)
+        log_time(outdir, batch_label, duration)
+        log_time(outdir, f"{batch_label} — генерация checkpoint", checkpoint_gen_sec)
+        log_time(outdir, f"{batch_label} — эталон+метрики checkpoint", checkpoint_scoring_sec)
+        log_time(outdir, f"{batch_label} — генерация baseline", baseline_gen_sec)
+        log_time(outdir, f"{batch_label} — рендер baseline", baseline_render_sec)
+        log_time(outdir, f"{batch_label} — judge", judge_sec)
+
     try:
         batch_gen = iter_dataset_batches(
             args.hf_dataset, args.n_samples, args.batch_size, args.seed,
@@ -922,7 +1004,7 @@ def main():
                 clip_request_queue=clip_request_queue,
             )
 
-            append_examples_csv(results_path, examples_df)
+            # --- синхронно: только in-memory состояние, нужное resume ---
             accumulator.add_batch(df)
             n_generation_errors += batch_err["n_generation_errors"]
             n_metric_errors += batch_err["n_metric_errors"]
@@ -942,20 +1024,7 @@ def main():
                 "n_judge_errors": n_judge_errors,
                 "accumulator": accumulator.to_state(),
             }
-            save_progress(progress_path, progress)
-
             duration = time.perf_counter() - t0
-            log_time(outdir, f"Батч {batch_idx - 1}", duration)
-            log_time(outdir, f"Батч {batch_idx - 1} — генерация checkpoint",
-                     timing["checkpoint_generation_deploy_sec"] + timing["checkpoint_generation_work_sec"])
-            log_time(outdir, f"Батч {batch_idx - 1} — эталон+метрики checkpoint",
-                     timing["checkpoint_scoring_sec"])
-            log_time(outdir, f"Батч {batch_idx - 1} — генерация baseline",
-                     timing["baseline_generation_deploy_sec"] + timing["baseline_generation_work_sec"])
-            log_time(outdir, f"Батч {batch_idx - 1} — рендер baseline",
-                     timing["baseline_render_sec"])
-            log_time(outdir, f"Батч {batch_idx - 1} — judge",
-                     timing["judge_deploy_sec"] + timing["judge_work_sec"])
             means_so_far = accumulator.means()
             print(f"[batch {batch_idx - 1}] {duration:.1f} сек. Накопленное среднее чекпоинта "
                   f"({accumulator.count} оценённых сэмплов): "
@@ -965,6 +1034,26 @@ def main():
                       f"winrate чекпоинта={means_so_far['judge_winrate_checkpoint']:.4f}, "
                       f"winrate baseline={means_so_far['judge_winrate_baseline']:.4f}")
 
+            # --- дождаться записи батча N-2, прежде чем ставить в очередь N-1
+            # (обратное давление — см. docstring finalize_pool выше) ---
+            if pending_finalize is not None:
+                pending_finalize.result()
+            pending_finalize = finalize_pool.submit(
+                _finalize_batch_on_disk, examples_df, progress,
+                f"Батч {batch_idx - 1}", duration,
+                timing["checkpoint_generation_deploy_sec"] + timing["checkpoint_generation_work_sec"],
+                timing["checkpoint_scoring_sec"],
+                timing["baseline_generation_deploy_sec"] + timing["baseline_generation_work_sec"],
+                timing["baseline_render_sec"],
+                timing["judge_deploy_sec"] + timing["judge_work_sec"],
+            )
+            # process_one_batch следующей итерации стартует здесь, пока
+            # запись батча {batch_idx - 1} на диск ещё может идти в фоне.
+
+        if pending_finalize is not None:
+            pending_finalize.result()
+        finalize_pool.shutdown(wait=True)
+
         from render import close_browser
         close_browser()
     finally:
@@ -972,6 +1061,11 @@ def main():
         # если прогон упал/прервался посреди батча), потом CLIP — так VRAM
         # освобождается в предсказуемом порядке и не остаётся висящих
         # процессов ни от того, ни от другого при Ctrl+C/исключении.
+        # finalize_pool.shutdown(wait=False) здесь на случай, если цикл упал
+        # ДО штатного shutdown(wait=True) выше — не блокируем аварийное
+        # завершение ожиданием фоновой записи, но и не оставляем поток
+        # висеть незакрытым.
+        finalize_pool.shutdown(wait=False)
         print("[run_benchmark] Останавливаю vLLM-сервер...")
         server_manager.stop()
         if clip_server is not None:
