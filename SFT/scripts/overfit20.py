@@ -1,5 +1,4 @@
-"""Overfit sanity-check: 20 примеров WebSight, full fine-tune, лосс обязан рухнуть.
-
+"""
 Запуск (одна карта):
     CUDA_VISIBLE_DEVICES=0 uv run python -m scripts.overfit20
     CUDA_VISIBLE_DEVICES=0 uv run python scripts/overfit20.py --model_name_or_path ...
@@ -7,18 +6,6 @@
 Запуск как в проде (две карты, ZeRO-2) — если одна карта не тянет по памяти:
     CUDA_VISIBLE_DEVICES=0,1 uv run torchrun --nproc_per_node=2 \
         -m scripts.overfit20 --deepspeed configs/deepspeed_zero2.json
-
-Если на 20 примерах лосс не падает на порядок — баг в пайплайне (маскирование
-меток, коллация, бюджет длины), а не в данных. Чинить здесь, до боевого рана.
-
-Веса пишутся в ./train_res/<run_name>/ (~8 ГБ для 4B в bf16) — чтобы можно было
-скормить переобученной модели тот же скриншот и посмотреть, что она отдаёт.
-Промежуточных чекпоинтов нет (`save_strategy="no"`), сохраняется только финал.
-
-Почему full FT, а не LoRA: LoRA проверяет меньше. При замороженной базе часть
-ошибок в маскировании и коллации маскируется самим адаптером — он просто не
-может выучить мусор. Full FT переобучается на 20 примерах гарантированно, и
-если этого не произошло, поломка настоящая.
 """
 import argparse
 import sys
@@ -158,9 +145,6 @@ def main():
 
     trainer = build_trainer(script_args, training_args, model_args)
     trainer.train()
-
-    # Сохраняем ДО проверки лосса: если тест не прошёл, веса нужны тем более —
-    # по генерациям переобученной модели видно, что именно она выучила.
     trainer.save_model(training_args.output_dir)
     trainer.processing_class.save_pretrained(training_args.output_dir)
     print(f"чекпоинт: {training_args.output_dir}")

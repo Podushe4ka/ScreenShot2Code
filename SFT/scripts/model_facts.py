@@ -1,8 +1,3 @@
-"""Факты об архитектуре — без них MFU считается на глазок.
-
-    python -m scripts.model_facts --config configs/full_ft_qwen3_5_4b.yaml
-"""
-
 import argparse
 import json
 
@@ -66,8 +61,6 @@ def main(argv=None):
     n = facts["num_hidden_layers"]
     if h and n:
         for seq in (8192, 16384):
-            # активации без чекпоинтинга, оценка Korthikanti без члена внимания
-            # (flash-attention не материализует матрицу s x s)
             gb = 34 * seq * h * n / 1024**3
             print(f"без gradient_checkpointing при seq={seq}, bs=1: ~{gb:.1f} ГБ активаций на карту")
 

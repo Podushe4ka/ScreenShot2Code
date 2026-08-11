@@ -56,8 +56,8 @@ def isolate_compile_caches() -> None:
 
 
 def setup_logging(training_args) -> None:
-    """INFO для своего кода, WARNING для библиотек, шум — только с rank 0.
-
+    """
+    INFO для своего кода, WARNING для библиотек, шум — только с rank 0.
     """
     logging.basicConfig(
         level=logging.WARNING,

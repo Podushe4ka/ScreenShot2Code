@@ -1,7 +1,3 @@
-"""
-Отбраковка сэмплов по бюджету токенов.
-"""
-
 import logging
 from dataclasses import dataclass
 
@@ -51,7 +47,7 @@ def _worker_count(num_proc: int | None, n_rows: int) -> int | None:
 @dataclass
 class LengthReport:
     """
-    Что показал замер бюджета — печатается до загрузки модели.
+    Замер бюджета — печатается до загрузки модели.
     """
 
     total: int

@@ -1,6 +1,4 @@
-#!/usr/bin/env bash
-# Сборка образа для SFT-трека. Один раз, ~30-40 мин: компилируется flash-attn.
-#
+# Сборка образа для SFT.
 #   ./build.sh              # тег sft
 #   IMAGE=sft:cu126 ./build.sh
 #   ./build.sh --no-cache   # любые доп. флаги уходят в docker build

@@ -3,9 +3,6 @@
 Запуск (оба способа работают):
     uv run python -m scripts.smoke_test [--model_name_or_path ...] [--revision ...]
     uv run python scripts/smoke_test.py
-
-Это тестовая обвязка, поэтому здесь названа конкретная модель — библиотечный код
-(`train/formatting.py`) остаётся модельно-агностичным.
 """
 
 import argparse
@@ -84,15 +81,6 @@ def check_masking(processor, collate_fn, image_token_id, response_ids):
 
 def check_visual_budget(processor, batch, image_token_id):
     """Фактическое число визуальных токенов не превышает расчётный потолок.
-
-    Проверка односторонняя. `visual_token_budget` — верхняя граница: smart_resize
-    округляет стороны ВНИЗ до кратного factor, поэтому реально выходит на
-    несколько процентов меньше (1280x1280 при потолке 1.31 Мп даёт 35x35=1225,
-    а не 1280). Для фильтрации оценка сверху и нужна.
-
-    Превышение означает, что min_pixels/max_pixels не доехали до процессора: у
-    Qwen3.5 в preprocessor_config.json их нет, и без наших констант он взял бы
-    свой longest_edge (16384 токена) — скриншот уехал бы в модель целиком.
     """
     expected = visual_token_budget(processor)
     merge = processor.image_processor.merge_size

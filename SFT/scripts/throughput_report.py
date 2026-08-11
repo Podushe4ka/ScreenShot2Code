@@ -1,10 +1,4 @@
 """Сводка по логам throughput_matrix.sh.
-
-Считает МАРЖИНАЛЬНУЮ скорость (разница между соседними шагами), а не
-накопительную: `train_tokens_per_second` в логе усредняет всё вместе с первым
-шагом, а тот втрое дороже из-за компиляции Triton-ядер.
-
-    python -m scripts.throughput_report throughput-logs
 """
 
 import argparse

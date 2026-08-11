@@ -1,20 +1,3 @@
-"""Профиль нескольких шагов: куда уходит время и куда уходит память.
-
-Матрица throughput_matrix.sh отвечает «что быстрее», этот скрипт — «почему».
-Печатает две таблицы (по self CUDA и по self CPU) и, по флагу, снимает снапшот
-аллокатора памяти.
-
-    torchrun --nproc_per_node=2 -m scripts.profile_steps \\
-        --config configs/full_ft_qwen3_5_4b.yaml --dataset_name /data/webcode2m_1000_split
-
-Снапшот памяти — переменной окружения MEM_SNAPSHOT:
-
-    MEM_SNAPSHOT=/out/mem.pickle torchrun ... -m scripts.profile_steps ...
-
-Открывается на https://pytorch.org/memory_viz — показывает аллокации по стеку
-вызовов, то есть отвечает на вопрос «чьи это гигабайты», а не «сколько их».
-"""
-
 import os
 
 import torch
@@ -30,13 +13,8 @@ TOP_N = 25
 
 
 class ProfileCallback(TrainerCallback):
-    """Профилировщик живёт ровно WAIT+WARMUP+ACTIVE шагов, потом печатает отчёт.
 
-    Первые шаги пропускаются намеренно: на них компилируются Triton-ядра и
-    прогревается аллокатор, и они забивают собой весь топ.
-    """
-
-    def __init__(self, trace_path: str | None, mem_snapshot: str | None = None, sync_debug: bool | False = False):
+    def __init__(self, trace_path: str | None, mem_snapshot: str | None = None, sync_debug: bool = False):
         self.trace_path = trace_path
         self.mem_snapshot = mem_snapshot
         self.sync_debug = sync_debug
@@ -45,8 +23,6 @@ class ProfileCallback(TrainerCallback):
 
     def on_train_begin(self, args, state, control, **kwargs):
         if self.mem_snapshot:
-            # запись истории аллокаций начинается до первого шага, иначе не
-            # попадут постоянные буферы: веса, состояния оптимизатора, графы
             torch.cuda.memory._record_memory_history(max_entries=200_000)
         self.prof = profile(
             activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
@@ -98,7 +74,7 @@ class ProfileCallback(TrainerCallback):
         if self.mem_snapshot:
             torch.cuda.memory._dump_snapshot(self.mem_snapshot)
             torch.cuda.memory._record_memory_history(enabled=None)
-            print(f"снапшот: {self.mem_snapshot} -> https://pytorch.org/memory_viz")
+            print(f"снапшот: {self.mem_snapshot}")
 
 
 def main(argv=None):
@@ -107,14 +83,10 @@ def main(argv=None):
         parser.parse_args_and_config(args=argv)
     )
 
-    # chrome trace — через переменную окружения, чтобы не смешивать свои
-    # аргументы с дataclass-полями TrlParser
     sync_debug = bool(os.environ.get("SYNC_DEBUG")) and training_args.process_index == 0
     trace_path = os.environ.get("TRACE_PATH") or None
     mem_snapshot = os.environ.get("MEM_SNAPSHOT") or None
     if mem_snapshot and training_args.process_index != 0:
-        # снапшот с обоих рангов — это два файла по сотне мегабайт об одном и
-        # том же; хватит ранга 0
         mem_snapshot = None
 
     if training_args.max_steps < 0 or training_args.max_steps > 10:

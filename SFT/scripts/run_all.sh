@@ -1,20 +1,11 @@
-#!/usr/bin/env bash
-# Всё подряд: факты о модели -> проверка стабильности ->
-# матрица замеров -> сводка -> профиль. Результаты в один каталог.
-#
 # Запуск из /workspace/SFT внутри контейнера:
 #   nohup bash scripts/run_all.sh > run_all.out 2>&1 &
 #   tail -f run_all.out
-#
-# Ни один шаг не роняет прогон целиком: каждый отчитывается и передаёт дальше.
-# Итог — $RESULT_DIR/REPORT.txt.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
 if [[ -z "${RESULT_DIR:-}" ]]; then
-  # /out — смонтированный с хоста просторный диск (OUT_DIR в run.sh).
-  # Без него пишем рядом с репозиторием, но там легко упереться в место.
   BASE=$([[ -d /out ]] && echo /out || echo .)
   RESULT_DIR="$BASE/experiments-$(date +%Y%m%d-%H%M%S)"
 fi
