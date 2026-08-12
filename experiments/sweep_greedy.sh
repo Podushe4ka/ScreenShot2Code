@@ -12,9 +12,8 @@
 # Запуск: GPUS='"device=1"' TP=1 ./sweep_greedy.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."; REPO="$PWD"   # скрипт лежит в experiments/, работаем от корня репо
-# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
-# что был вбит раньше, поэтому поведение прогонов не меняется.
-: "${STORAGE:=/mnt/storage-1}"
+REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/greedy"
 OUT="$BASE/checkpoints_exps/d2c-sweep"
@@ -22,12 +21,9 @@ RUN="$OUT/full_ft_qwen3_5_4b_s42_20260805-201901"
 TP="${TP:-1}"; GPUS="${GPUS:-\"device=1\"}"
 BENCH_DS_E=/root/.cache/huggingface/d2c_short_bench      # путь ВНУТРИ образа бенча
 BASE_MODEL="${BASE_MODEL:-Qwen/Qwen3.5-4B}"
-LOG="$BASE/logs/greedy/GREEDY.log"; say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
-mkchmod(){ docker run --rm -v /mnt/storage-1:/storage --entrypoint bash sft \
-             -c "mkdir -p /storage/${1#/mnt/storage-1/} && chmod -R 777 /storage/${1#/mnt/storage-1/}" 2>/dev/null; }
+LOG="$BASE/logs/greedy/GREEDY.log"; RUN_LOG="$LOG"; SAY_TIME_FMT='%H:%M:%S'
 
-NREAL=$(docker run --rm -v /mnt/storage-1:/storage --entrypoint /opt/venv/bin/python sft \
-        -c "from datasets import load_from_disk;print(len(load_from_disk('/storage/Screenshot2Code/hf_cache/d2c_short_bench')))" 2>/dev/null)
+NREAL=$(count_samples /storage/Screenshot2Code/hf_cache/d2c_short_bench)
 [[ -n "$NREAL" ]] || { say "не смог прочитать датасет"; exit 1; }
 say "greedy-перебенч: $NREAL сэмплов, TP=$TP, GPUS=$GPUS"
 

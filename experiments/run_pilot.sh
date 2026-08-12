@@ -30,8 +30,9 @@
 # REPORT.txt, управление идёт дальше.
 set -uo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."   # скрипт лежит в experiments/, работаем от корня репо
 REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 
 DATA_DIR="${DATA_DIR:-/mnt/storage-1/data}"
 DATASET_NAME="${DATASET_NAME:-webcode2m_1000_split}"
@@ -67,7 +68,7 @@ mkdir -p "$LOGS"
 # DRY_RUN нужно видеть на экране, а не вылавливать из логов.
 exec 3>&1
 
-say()  { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$REPORT"; }
+RUN_LOG="$REPORT"
 rule() { printf '%s\n' "--------------------------------------------------------" | tee -a "$REPORT"; }
 run()  { if [[ "$DRY_RUN" == "1" ]]; then echo "  DRY: $*" >&3; return 0; fi; "$@"; }
 

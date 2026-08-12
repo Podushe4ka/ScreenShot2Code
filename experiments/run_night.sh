@@ -11,12 +11,10 @@
 # следующая всё равно стартует, а в сводке будет видно, чего не хватает.
 set -uo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."   # скрипт лежит в experiments/, работаем от корня репо
 REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 
-# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
-# что был вбит раньше, поэтому поведение прогонов не меняется.
-: "${STORAGE:=/mnt/storage-1}"
 BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/pilot"
 DATA_DIR="${DATA_DIR:-$BASE/data}"
@@ -40,7 +38,9 @@ TRAIN_FREE_MB="${TRAIN_FREE_MB:-5000}"
 
 LOG="$BASE/logs/pilot/NIGHT.log"
 mkdir -p "$BASE"
-say() { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
+RUN_LOG="$LOG"
+# Своя phase поверх common.sh: между фазами ночной цепочки проверяется диск —
+# без этого прогон упирается в переполнение уже после нескольких часов работы.
 phase() { echo | tee -a "$LOG"; say "############ $* ############"; check_disk; }
 
 # Локальный диск a100-2 почти полон. Все контейнеры переведены на storage
@@ -104,7 +104,7 @@ wait_for_gpus "$BENCH_FREE_MB"
 if [[ -d "$CKPT_1K" ]]; then
   DATA_DIR="$DATA_DIR" HF_CACHE="$HF_CACHE" GPUS="$GPUS" \
   BENCH_TP="$BENCH_TP" BENCH_N="$BENCH_N" NOWAIT=1 \
-    "$REPO/bench_all.sh" "$CKPT_1K" 2>&1 | tee -a "$LOG"
+    "$REPO/experiments/bench_all.sh" "$CKPT_1K" 2>&1 | tee -a "$LOG"
   say "ФАЗА 1 закончена (rc=${PIPESTATUS[0]})"
 else
   say "ПРОПУСК: нет $CKPT_1K"
@@ -149,14 +149,14 @@ wait_for_gpus "$TRAIN_FREE_MB"
 DATA_DIR="$DATA_DIR" DATASET_NAME="webcode2m_${TARGET_3K}_split" \
 HF_CACHE="$HF_CACHE" RESULT_DIR="$CKPT_3K" \
 GPUS="$GPUS" NPROC="$NPROC" WAVE=all SKIP_BENCH=1 \
-  "$REPO/run_pilot.sh" 2>&1 | tee -a "$LOG"
+  "$REPO/experiments/run_pilot.sh" 2>&1 | tee -a "$LOG"
 say "ФАЗА 3 закончена (rc=${PIPESTATUS[0]})"
 
 phase "ФАЗА 4: бенч чекпоинтов ${TARGET_3K}"
 wait_for_gpus "$BENCH_FREE_MB"
 DATA_DIR="$DATA_DIR" HF_CACHE="$HF_CACHE" GPUS="$GPUS" \
 BENCH_TP="$BENCH_TP" BENCH_N="$BENCH_N" NOWAIT=1 \
-  "$REPO/bench_all.sh" "$CKPT_3K" 2>&1 | tee -a "$LOG"
+  "$REPO/experiments/bench_all.sh" "$CKPT_3K" 2>&1 | tee -a "$LOG"
 say "ФАЗА 4 закончена (rc=${PIPESTATUS[0]})"
 
 phase "ИТОГИ"

@@ -14,10 +14,8 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 
-# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
-# что был вбит раньше, поэтому поведение прогонов не меняется.
-: "${STORAGE:=/mnt/storage-1}"
 BASE="$STORAGE/Screenshot2Code"
 OUT_ROOT="${OUT_ROOT:-$BASE/checkpoints_exps/wc2m-15k-ab/bench}"
 HF_CACHE="${HF_CACHE:-$BASE/hf_cache}"
@@ -32,7 +30,7 @@ GPU_UTIL="${GPU_UTIL:-0.50}"
 LOGS="$OUT_ROOT/../logs"; mkdir -p "$LOGS"
 REPORT="$OUT_ROOT/../REPORT-queue.txt"
 
-say() { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$REPORT"; }
+RUN_LOG="$REPORT"
 
 E3=$BASE/checkpoints_exps/exps-3k/E3/full_ft_qwen3_5_4b_s42_20260804-174927
 

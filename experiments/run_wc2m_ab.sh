@@ -23,10 +23,8 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 
-# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
-# что был вбит раньше, поэтому поведение прогонов не меняется.
-: "${STORAGE:=/mnt/storage-1}"
 BASE="$STORAGE/Screenshot2Code"
 DATA_DIR="${DATA_DIR:-$BASE/data}"
 HF_CACHE="${HF_CACHE:-$BASE/hf_cache}"
@@ -65,8 +63,7 @@ LOGS="$RUN_ROOT/logs"
 REPORT="$RUN_ROOT/REPORT.txt"
 mkdir -p "$LOGS" "$CONTAINER_HOME"
 
-say()   { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$REPORT"; }
-phase() { echo | tee -a "$REPORT"; say "########## $* ##########"; }
+RUN_LOG="$REPORT"
 
 docker image inspect sft >/dev/null 2>&1 || { say "НЕТ образа sft"; exit 1; }
 docker image inspect "$BENCH_IMAGE" >/dev/null 2>&1 || { say "НЕТ образа $BENCH_IMAGE"; exit 1; }

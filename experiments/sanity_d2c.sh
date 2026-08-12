@@ -4,11 +4,10 @@
 # не бьёт базу на сэмплах, которые она видела, — сломан пайплайн, а не данные.
 # Если бьёт — пайплайн исправен, и деградация на WebCode2M — проблема данных.
 set -uo pipefail
-cd "$(dirname "$0")"; REPO="$PWD"
+cd "$(dirname "$0")/.."; REPO="$PWD"   # скрипт лежит в experiments/, работаем от корня репо
+REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 
-# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
-# что был вбит раньше, поэтому поведение прогонов не меняется.
-: "${STORAGE:=/mnt/storage-1}"
 BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/sanity"
 N="${N:-64}"; EPOCHS="${EPOCHS:-12}"; LR="${LR:-1e-5}"
@@ -16,7 +15,7 @@ GPUS="${GPUS:-\"device=0,1\"}"; NPROC="${NPROC:-2}"
 DATA="$BASE/data/d2c_overfit"
 OUT="$BASE/checkpoints_exps/d2c-overfit"
 LOG="$BASE/logs/sanity/SANITY.log"
-say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
+RUN_LOG="$LOG"; SAY_TIME_FMT='%H:%M:%S'   # исторически без даты
 
 # --- 1. собрать датасет из первых N Design2Code (та же выборка, что бенч) ---
 if [[ ! -d "$DATA/train" ]]; then

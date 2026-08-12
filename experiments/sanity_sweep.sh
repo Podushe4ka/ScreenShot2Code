@@ -4,10 +4,9 @@
 # Ищем, на какой эпохе overfit бьёт базу (0.835) до autoregressive drift.
 # В разы дешевле, чем 4 отдельных прогона. Датасеты собраны sanity_fit.
 set -uo pipefail
-cd "$(dirname "$0")"; REPO="$PWD"
-# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
-# что был вбит раньше, поэтому поведение прогонов не меняется.
-: "${STORAGE:=/mnt/storage-1}"
+cd "$(dirname "$0")/.."; REPO="$PWD"   # скрипт лежит в experiments/, работаем от корня репо
+REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/sweep"
 LR="${LR:-2e-5}"; EPOCHS="${EPOCHS:-5}"; NPROC="${NPROC:-2}"
@@ -19,9 +18,8 @@ OUT="$BASE/checkpoints_exps/d2c-sweep"
 # а HF-кэш ($BASE/hf_cache) кладёт в /root/.cache/huggingface.
 BENCH_DS_C=/storage/Screenshot2Code/hf_cache/d2c_short_bench   # для образа sft
 BENCH_DS_E=/root/.cache/huggingface/d2c_short_bench            # для образа бенча
-NREAL=$(docker run --rm -v /mnt/storage-1:/storage --entrypoint /opt/venv/bin/python sft -c "from datasets import load_from_disk;print(len(load_from_disk('$BENCH_DS_C')))" 2>/dev/null)
-LOG="$BASE/logs/sweep/SWEEP.log"; say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
-mkchmod(){ docker run --rm -v /mnt/storage-1:/storage --entrypoint bash sft -c "mkdir -p /storage/${1#/mnt/storage-1/} && chmod -R 777 /storage/${1#/mnt/storage-1/}" 2>/dev/null; }
+NREAL=$(count_samples "$BENCH_DS_C")
+LOG="$BASE/logs/sweep/SWEEP.log"; RUN_LOG="$LOG"; SAY_TIME_FMT='%H:%M:%S'
 
 say "свип ОДНИМ прогоном: $EPOCHS эпох, чекпоинт/эпоху | $NREAL сэмплов | lr $LR | база 0.835"
 mkchmod "$OUT"

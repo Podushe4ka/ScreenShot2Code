@@ -16,9 +16,8 @@
 # Запуск: GPUS='"device=1"' ./bench_ui2code.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."; REPO="$PWD"
-# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
-# что был вбит раньше, поэтому поведение прогонов не меняется.
-: "${STORAGE:=/mnt/storage-1}"
+REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/ui2code" "$BASE/prompts"
 MODEL="${MODEL:-zai-org/UI2Code_N}"
@@ -41,9 +40,7 @@ GPU_MEM="${GPU_MEM:-0.70}"
 # тихо no-op'ит. Раньше здесь стоял CLEARML_DISABLE=1 — скопирован из отладочных
 # sanity-скриптов, для полноценного эксперимента это неверно.
 [[ -f "$REPO/.env" ]] && set -a && . "$REPO/.env" && set +a
-LOG="$BASE/logs/ui2code/UI2CODE.log"; say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
-mkchmod(){ docker run --rm -v /mnt/storage-1:/storage --entrypoint bash sft \
-             -c "mkdir -p /storage/${1#/mnt/storage-1/} && chmod -R 777 /storage/${1#/mnt/storage-1/}" 2>/dev/null; }
+LOG="$BASE/logs/ui2code/UI2CODE.log"; RUN_LOG="$LOG"; SAY_TIME_FMT='%H:%M:%S'
 
 # Родной промпт модели (из её карточки на HF).
 NATIVE="$BASE/prompts/ui2code_native.txt"
@@ -52,8 +49,7 @@ NATIVE="$BASE/prompts/ui2code_native.txt"
 if [[ -n "$N" ]]; then
   NREAL="$N"
 else
-  NREAL=$(docker run --rm -v /mnt/storage-1:/storage --entrypoint /opt/venv/bin/python sft \
-          -c "from datasets import load_from_disk;print(len(load_from_disk('${BENCH_DS_E/\/root\/.cache\/huggingface//storage/Screenshot2Code/hf_cache}')))" 2>/dev/null)
+  NREAL=$(count_samples "${BENCH_DS_E/\/root\/.cache\/huggingface//storage/Screenshot2Code/hf_cache}")
 fi
 [[ -n "$NREAL" ]] || { say "датасет не читается: $BENCH_DS_E"; exit 1; }
 say "UI2Code^N: $BENCH_DS_E, $NREAL сэмплов, greedy, TP=$TP, max_model_len=$MAXLEN"

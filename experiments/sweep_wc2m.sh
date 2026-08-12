@@ -15,9 +15,8 @@
 # Запуск: GPUS='"device=1,2"' NPROC=2 ./sweep_wc2m.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."; REPO="$PWD"   # скрипт лежит в experiments/, работаем от корня репо
-# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
-# что был вбит раньше, поэтому поведение прогонов не меняется.
-: "${STORAGE:=/mnt/storage-1}"
+REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/wc2m"
 N="${N:-40}"; LR="${LR:-2e-5}"; EPOCHS="${EPOCHS:-5}"; NPROC="${NPROC:-2}"; TP="${TP:-1}"
@@ -27,9 +26,7 @@ TRAIN_DS="$BASE/data/wc2m_short"; TRAIN_DS_C="/storage/Screenshot2Code/data/wc2m
 BENCH_DS_C="/storage/Screenshot2Code/hf_cache/wc2m_short_bench"  # путь для образа sft
 BENCH_DS_E=/root/.cache/huggingface/wc2m_short_bench             # путь для образа бенча
 OUT="$BASE/checkpoints_exps/wc2m-sweep"
-LOG="$BASE/logs/wc2m/WC2M.log"; say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
-mkchmod(){ docker run --rm -v /mnt/storage-1:/storage --entrypoint bash sft \
-             -c "mkdir -p /storage/${1#/mnt/storage-1/} && chmod -R 777 /storage/${1#/mnt/storage-1/}" 2>/dev/null; }
+LOG="$BASE/logs/wc2m/WC2M.log"; RUN_LOG="$LOG"; SAY_TIME_FMT='%H:%M:%S'
 
 # --- 1. взять N сэмплов WebCode2M, сохранить в обоих форматах ---
 # train == eval: бенчим ровно то, на чём учили (memorization-тест).

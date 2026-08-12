@@ -19,8 +19,9 @@
 # распределения — H1 из плана экспериментов).
 set -uo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."   # скрипт лежит в experiments/, работаем от корня репо
 REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 
 RESULT_DIR="${1:-$(ls -td "$REPO"/exps-* 2>/dev/null | head -1)}"
 [[ -n "$RESULT_DIR" && -d "$RESULT_DIR" ]] || { echo "не найден каталог exps-*"; exit 1; }
@@ -51,7 +52,7 @@ BASE_MODEL="${BASE_MODEL:-Qwen/Qwen3.5-4B}"
 
 LOGS="$RESULT_DIR/logs"; mkdir -p "$LOGS"
 REPORT="$RESULT_DIR/REPORT-bench.txt"
-say() { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$REPORT"; }
+RUN_LOG="$REPORT"
 
 # train_sft.py дописывает к output_dir имя рана (train_sft.py:167), поэтому веса
 # лежат не в E<N>/, а в E<N>/<config>_s42_<дата>/. Ищем каталог с весами: сперва

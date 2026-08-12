@@ -7,10 +7,9 @@
 # Запуск на ХОСТЕ (a100-3, GPU 1,2 свободны):
 #   GPUS='"device=1,2"' NPROC=2 ./sanity_fit.sh
 set -uo pipefail
-cd "$(dirname "$0")"; REPO="$PWD"
-# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
-# что был вбит раньше, поэтому поведение прогонов не меняется.
-: "${STORAGE:=/mnt/storage-1}"
+cd "$(dirname "$0")/.."; REPO="$PWD"   # скрипт лежит в experiments/, работаем от корня репо
+REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/sanity"
 N="${N:-40}"; EPOCHS="${EPOCHS:-15}"; LR="${LR:-2e-5}"; MAXCHARS="${MAXCHARS:-40000}"
@@ -19,7 +18,7 @@ TRAIN_DS="$BASE/data/d2c_short"                         # drafting-формат 
 BENCH_DS="$BASE/hf_cache/d2c_short_bench"               # image/text (под mount HF-кэша)
 OUT="$BASE/checkpoints_exps/d2c-sanity-fit"
 LOG="$BASE/logs/sanity/SANITYFIT.log"
-say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
+RUN_LOG="$LOG"; SAY_TIME_FMT='%H:%M:%S'   # исторически без даты
 
 # Контейнерные пути: внутри docker /mnt/storage-1 смонтирован как /storage.
 # save_to_disk ДОЛЖЕН писать по /storage/... (bind mount), иначе данные уходят
@@ -48,7 +47,7 @@ print('готово:', len(draft), 'сэмплов')
 " > "$BASE/logs/sanity/sfit_build.log" 2>&1
   say "сборка: $(grep -o 'готово.*' $BASE/logs/sanity/sfit_build.log 2>/dev/null || echo 'см. sfit_build.log')"
 fi
-NREAL=$(docker run --rm -v /mnt/storage-1:/storage --entrypoint /opt/venv/bin/python sft -c "from datasets import load_from_disk;print(len(load_from_disk('$BENCH_DS_C')))" 2>/dev/null)
+NREAL=$(count_samples "$BENCH_DS_C")
 [[ -n "$NREAL" ]] || { say "датасет не собрался"; exit 1; }
 say "сэмплов в наборе: $NREAL"
 

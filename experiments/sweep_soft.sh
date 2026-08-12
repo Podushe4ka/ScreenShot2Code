@@ -13,9 +13,8 @@
 # Запуск: GPUS='"device=1,2"' NPROC=2 ./sweep_soft.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."; REPO="$PWD"   # скрипт лежит в experiments/, работаем от корня репо
-# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
-# что был вбит раньше, поэтому поведение прогонов не меняется.
-: "${STORAGE:=/mnt/storage-1}"
+REPO="$PWD"
+source "$REPO/experiments/lib/common.sh"
 BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/soft"
 LR="${LR:-5e-6}"; EPOCHS="${EPOCHS:-5}"; NPROC="${NPROC:-2}"; TP="${TP:-1}"
@@ -23,12 +22,9 @@ GPUS="${GPUS:-\"device=1,2\"}"          # обучение: обе карты
 BENCH_GPUS="${BENCH_GPUS:-\"device=1\"}"  # бенч: одной хватает
 OUT="$BASE/checkpoints_exps/d2c-sweep-soft"
 BENCH_DS_E=/root/.cache/huggingface/d2c_short_bench   # путь ВНУТРИ образа бенча
-LOG="$BASE/logs/soft/SOFT.log"; say(){ echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
-mkchmod(){ docker run --rm -v /mnt/storage-1:/storage --entrypoint bash sft \
-             -c "mkdir -p /storage/${1#/mnt/storage-1/} && chmod -R 777 /storage/${1#/mnt/storage-1/}" 2>/dev/null; }
+LOG="$BASE/logs/soft/SOFT.log"; RUN_LOG="$LOG"; SAY_TIME_FMT='%H:%M:%S'
 
-NREAL=$(docker run --rm -v /mnt/storage-1:/storage --entrypoint /opt/venv/bin/python sft \
-        -c "from datasets import load_from_disk;print(len(load_from_disk('/storage/Screenshot2Code/hf_cache/d2c_short_bench')))" 2>/dev/null)
+NREAL=$(count_samples /storage/Screenshot2Code/hf_cache/d2c_short_bench)
 [[ -n "$NREAL" ]] || { say "датасет не читается"; exit 1; }
 
 # Трейнер кладёт чекпоинты в $OUT/<run_name>/checkpoint-N — ищем на обоих
