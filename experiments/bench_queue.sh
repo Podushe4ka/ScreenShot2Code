@@ -15,7 +15,10 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
 
-BASE=/mnt/storage-1/Screenshot2Code
+# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
+# что был вбит раньше, поэтому поведение прогонов не меняется.
+: "${STORAGE:=/mnt/storage-1}"
+BASE="$STORAGE/Screenshot2Code"
 OUT_ROOT="${OUT_ROOT:-$BASE/checkpoints_exps/wc2m-15k-ab/bench}"
 HF_CACHE="${HF_CACHE:-$BASE/hf_cache}"
 GPU="${GPU:-3}"

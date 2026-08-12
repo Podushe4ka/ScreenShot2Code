@@ -20,7 +20,7 @@ import re
 
 from bs4 import BeautifulSoup
 
-# ---- переиспользуем протестированное ядро из drafting-конвертера (один источник правды) ----
+# Переиспользуем протестированное ядро drafting-конвертера: один источник правды.
 _BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "websight", "convert_lib.py")
 _spec = importlib.util.spec_from_file_location("websight_convert_lib", _BASE)
 _base = importlib.util.module_from_spec(_spec)
@@ -41,7 +41,6 @@ MIN_PIXELS = _base.MIN_PIXELS
 MAX_PIXELS = _base.MAX_PIXELS
 TOKENIZER_ID_DEFAULT = _base.TOKENIZER_ID_DEFAULT
 
-# ---- источник ----
 DATASET_ID = "xcodemind/webcode2m_purified"   # реальные pruned-страницы, HTML+CSS слиты в `text`
 SPLIT = "train"
 HTML_FIELD = "text"       # поле с HTML(+CSS)

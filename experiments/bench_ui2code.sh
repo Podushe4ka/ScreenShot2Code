@@ -16,7 +16,10 @@
 # Запуск: GPUS='"device=1"' ./bench_ui2code.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."; REPO="$PWD"
-BASE=/mnt/storage-1/Screenshot2Code
+# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
+# что был вбит раньше, поэтому поведение прогонов не меняется.
+: "${STORAGE:=/mnt/storage-1}"
+BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/ui2code" "$BASE/prompts"
 MODEL="${MODEL:-zai-org/UI2Code_N}"
 BENCH_DS_E="${BENCH_DS_E:-/root/.cache/huggingface/d2c_short_bench}"

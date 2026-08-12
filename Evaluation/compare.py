@@ -8,29 +8,16 @@
 Итог stitch: <root>/compare_out/sample_XXXX.png — 5 картинок в ряд
 (оригинал, генерация базовой модели, генерации чекпоинтов дообучения).
 
-------------------------------------------------------------------------------
-Почему падал прежний вариант
-------------------------------------------------------------------------------
-RuntimeError: "An attempt has been made to start a new process before the
-current process has finished its bootstrapping phase" — это классика
-multiprocessing со start-методом "spawn". В нашем стеке рендер раньше
-распараллеливался через ProcessPoolExecutor + spawn (см. run_benchmark_batched.py,
-там VLLM_WORKER_MULTIPROC_METHOD=spawn и явный mp.get_context("spawn")). При spawn
-дочерний воркер ЗАНОВО ИМПОРТИРУЕТ главный модуль (сам скрипт). Если создание
-пула / тяжёлая работа лежит на верхнем уровне модуля, а не под
-`if __name__ == "__main__"`, то при этом повторном импорте воркер снова пытается
-поднять пул — ещё до конца бутстрапа — и multiprocessing валит ровно этой ошибкой.
+⚠ Не выносить работу на верхний уровень модуля. При spawn дочерний процесс
+заново импортирует главный модуль, и всё, что лежит вне функций, выполняется
+повторно — если там создание пула, multiprocessing падает с "An attempt has been
+made to start a new process before the current process has finished its
+bootstrapping phase". Здесь этого не случается: вся работа внутри функций,
+единственная точка входа под `if __name__ == "__main__"`, а рендер при таком
+маленьком N идёт последовательно на переиспользуемом Chromium из render.py —
+пул не создаётся вовсе.
 
-Здесь это исключено по двум причинам:
-1. Вся работа — внутри функций, единственная точка входа под
-   `if __name__ == "__main__"` (см. низ файла).
-2. N маленькое (единицы сэмплов), поэтому рендер идёт ПОСЛЕДОВАТЕЛЬНО в одном
-   процессе с переиспользуемым Chromium из render.py. Пул процессов не
-   создаётся вовсе — спавнить нечего, падать нечему.
-
-------------------------------------------------------------------------------
-Запуск (внутри docker-образа design2code-bench, как в исходном скрипте)
-------------------------------------------------------------------------------
+Запуск (внутри docker-образа design2code-bench):
   # генерация каждой моделью в свою папку:
   python3 /storage/compare.py gen --model <hf_id_или_путь> \
       --dataset /storage/data/webcode2m_le3072 --n 8 --out /storage/compare/<label>
@@ -101,7 +88,7 @@ def sample_dirname(i: int) -> str:
     return f"sample_{i:04d}"
 
 
-# ============================ подкоманда gen ==================================
+# Подкоманда gen
 
 def cmd_gen(args):
     # vLLM при tensor_parallel_size>1 форкает воркеров; spawn безопаснее fork с
@@ -168,7 +155,7 @@ def cmd_gen(args):
     print(f"[compare/gen] готово -> {out}")
 
 
-# ============================ подкоманда stitch ===============================
+# Подкоманда stitch
 
 def _load_font(size: int):
     from PIL import ImageFont
@@ -246,7 +233,7 @@ def cmd_stitch(args):
     print(f"[compare/stitch] готово -> {out_dir}")
 
 
-# ================================ CLI ========================================
+# CLI
 
 def build_parser():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

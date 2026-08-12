@@ -19,7 +19,10 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
 
-BASE=/mnt/storage-1/Screenshot2Code
+# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
+# что был вбит раньше, поэтому поведение прогонов не меняется.
+: "${STORAGE:=/mnt/storage-1}"
+BASE="$STORAGE/Screenshot2Code"
 DATA_DIR="${DATA_DIR:-$BASE/data}"
 HF_CACHE="${HF_CACHE:-$BASE/hf_cache}"
 TARGET="${TARGET:-15000}"
@@ -52,7 +55,7 @@ mkdir -p "$LOGS" "$CONTAINER_HOME"
 say()   { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$REPORT"; }
 phase() { echo | tee -a "$REPORT"; say "########## $* ##########"; }
 
-# ------------------------------------------------------------- проверки ----
+# Проверки
 docker image inspect sft >/dev/null 2>&1 || { say "НЕТ образа sft"; exit 1; }
 docker image inspect "$BENCH_IMAGE" >/dev/null 2>&1 || { say "НЕТ образа $BENCH_IMAGE"; exit 1; }
 if [[ -z "${CLEARML_API_ACCESS_KEY:-}" ]]; then
@@ -84,7 +87,7 @@ say "каталог прогона: $RUN_DIR"
 say "датасет: $DATA_DIR/$DATASET_NAME | GPU: $GPUS | обучение на $NPROC карт | бенч TP=$BENCH_TP"
 say "рецепт: $(basename "$CONFIG") lr=$LR, ${PIXELS} px"
 
-# ------------------------------------------------ ФАЗА 1: датасет 15k ------
+# ФАЗА 1: датасет 15k
 phase "ФАЗА 1: датасет WebCode2M на $TARGET примеров"
 if [[ -d "$DATA_DIR/${DATASET_NAME}/train" ]]; then
   say "датасет уже есть — пропускаю генерацию"
@@ -123,7 +126,7 @@ fi
 # обучения считаться не будет — а он показывает переобучение раньше бенча.
 [[ -d "$DATA_DIR/$DATASET_NAME/validation" ]] || { say "ОШИБКА: нет val-сплита"; exit 1; }
 
-# -------------------------------------------------- ФАЗА 2: обучение -------
+# ФАЗА 2: обучение
 phase "ФАЗА 2: full-FT на $NPROC картах"
 OUT_HOST="$RUN_DIR/train"
 if [[ "${SKIP_TRAIN:-0}" != "1" ]]; then
@@ -160,7 +163,7 @@ resolve_weights() {
   return 1
 }
 
-# --------------------------------------------------- ФАЗА 3: бенч ---------
+# ФАЗА 3: бенч
 phase "ФАЗА 3: бенч Design2Code-$BENCH_N (greedy)"
 [[ "${SKIP_BENCH:-0}" == "1" ]] && { say "SKIP_BENCH=1 — бенч пропущен"; exit 0; }
 

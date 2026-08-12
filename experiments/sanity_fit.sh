@@ -8,7 +8,10 @@
 #   GPUS='"device=1,2"' NPROC=2 ./sanity_fit.sh
 set -uo pipefail
 cd "$(dirname "$0")"; REPO="$PWD"
-BASE=/mnt/storage-1/Screenshot2Code
+# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
+# что был вбит раньше, поэтому поведение прогонов не меняется.
+: "${STORAGE:=/mnt/storage-1}"
+BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/sanity"
 N="${N:-40}"; EPOCHS="${EPOCHS:-15}"; LR="${LR:-2e-5}"; MAXCHARS="${MAXCHARS:-40000}"
 GPUS="${GPUS:-\"device=1,2\"}"; NPROC="${NPROC:-2}"

@@ -14,7 +14,10 @@ set -uo pipefail
 cd "$(dirname "$0")"
 REPO="$PWD"
 
-BASE=/mnt/storage-1/Screenshot2Code
+# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
+# что был вбит раньше, поэтому поведение прогонов не меняется.
+: "${STORAGE:=/mnt/storage-1}"
+BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/pilot"
 DATA_DIR="${DATA_DIR:-$BASE/data}"
 HF_CACHE="${HF_CACHE:-$BASE/hf_cache}"
@@ -65,7 +68,7 @@ say "кэши компиляции: $CONTAINER_HOME (локальный диск
 say "данные: $DATA_DIR | кэш: $HF_CACHE | чекпоинты: $CKPT_ROOT"
 say "GPU: $GPUS | бенч TP=$BENCH_TP, N=$BENCH_N | 3k: target=$TARGET_3K, workers=$N_WORKERS"
 
-# ------------------------------------------------------ ждём образ и копии --
+# Ждём образ и копии
 phase "ФАЗА 0: жду готовности образа и подготовки данных"
 while ! grep -q BUILD_DONE ~/build.log 2>/dev/null; do sleep 30; done
 say "образ бенча собран"
@@ -77,7 +80,7 @@ if ! docker run --rm --entrypoint ls design2code-bench:latest tracking.py >/dev/
 fi
 say "образ проверен: tracking.py на месте"
 
-# --------------------------------------------------------- ждём GPU -------
+# Ждём GPU
 wait_for_gpus() {
   local limit="${1:-$TRAIN_FREE_MB}"
   local waited=0

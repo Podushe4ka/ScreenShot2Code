@@ -6,7 +6,10 @@
 set -uo pipefail
 cd "$(dirname "$0")"; REPO="$PWD"
 
-BASE=/mnt/storage-1/Screenshot2Code
+# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
+# что был вбит раньше, поэтому поведение прогонов не меняется.
+: "${STORAGE:=/mnt/storage-1}"
+BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/sanity"
 N="${N:-64}"; EPOCHS="${EPOCHS:-12}"; LR="${LR:-1e-5}"
 GPUS="${GPUS:-\"device=0,1\"}"; NPROC="${NPROC:-2}"

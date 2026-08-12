@@ -5,7 +5,10 @@
 # В разы дешевле, чем 4 отдельных прогона. Датасеты собраны sanity_fit.
 set -uo pipefail
 cd "$(dirname "$0")"; REPO="$PWD"
-BASE=/mnt/storage-1/Screenshot2Code
+# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
+# что был вбит раньше, поэтому поведение прогонов не меняется.
+: "${STORAGE:=/mnt/storage-1}"
+BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/sweep"
 LR="${LR:-2e-5}"; EPOCHS="${EPOCHS:-5}"; NPROC="${NPROC:-2}"
 TP="${TP:-$NPROC}"                                      # TP бенча != NPROC обучения

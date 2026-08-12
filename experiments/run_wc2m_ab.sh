@@ -24,7 +24,10 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
 
-BASE=/mnt/storage-1/Screenshot2Code
+# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
+# что был вбит раньше, поэтому поведение прогонов не меняется.
+: "${STORAGE:=/mnt/storage-1}"
+BASE="$STORAGE/Screenshot2Code"
 DATA_DIR="${DATA_DIR:-$BASE/data}"
 HF_CACHE="${HF_CACHE:-$BASE/hf_cache}"
 CKPT_ROOT="${CKPT_ROOT:-$BASE/checkpoints_exps}"
@@ -71,7 +74,7 @@ if [[ -z "${CLEARML_API_ACCESS_KEY:-}" && "${CLEARML_DISABLE:-0}" != "1" ]]; the
   say "CLEARML_API_ACCESS_KEY не задан — source .env перед запуском"; exit 1
 fi
 
-# ------------------------------------------------------------- выбор карт --
+# Выбор карт
 # Возвращает список свободных id через запятую. Берём не больше PREFER_GPUS:
 # занимать всё, что видим, на общей машине незачем.
 free_gpu_ids() {
@@ -140,7 +143,7 @@ resolve_weights() {
   return 1
 }
 
-# --------------------------------------------------- сырой набор: разрез ---
+# Сырой набор: разрез
 phase "ФАЗА 0: сплиты обоих наборов"
 # По умолчанию — СОПОСТАВЛЕННАЯ пара: обе ветки собраны из одних и тех же
 # страниц (чистая ветка отрендерена по html-кэшу сырой). Иначе наборы отличались
@@ -179,7 +182,7 @@ fi
 [[ -d "$RAW_SPLIT/validation" ]] || { say "у сырого набора нет val-сплита"; exit 1; }
 say "сырой: $(basename "$RAW_SPLIT") ✓"
 
-# ------------------------------------------------------------- обучение ----
+# Обучение
 train_variant() {
   local name="$1" ds="$2"
   local out="$RUN_ROOT/$name"
@@ -212,7 +215,7 @@ train_variant() {
   return $rc
 }
 
-# --------------------------------------------------------------- бенч ------
+# Бенч
 bench_checkpoints() {
   local name="$1"
   local out="$RUN_ROOT/$name" weights ckpt tag

@@ -37,7 +37,8 @@ DATA_DIR="${DATA_DIR:-/mnt/storage-1/data}"
 DATASET_NAME="${DATASET_NAME:-webcode2m_1000_split}"
 # HF-кэш на общем диске, а не в $HOME: модели по 8-18 ГБ, и качать их
 # повторно в каждый контейнер незачем.
-DEFAULT_HF=/mnt/storage-1/hf_cache
+: "${STORAGE:=/mnt/storage-1}"
+DEFAULT_HF="$STORAGE/hf_cache"
 HF_CACHE="${HF_CACHE:-$([[ -d $DEFAULT_HF ]] && echo $DEFAULT_HF || echo "$HOME/.cache/huggingface")}"
 # Какие карты свободны — МЕНЯЕТСЯ, проверяй nvidia-smi перед запуском.
 GPUS="${GPUS:-\"device=0,1\"}"
@@ -70,7 +71,7 @@ say()  { echo "[$(date '+%m-%d %H:%M:%S')] $*" | tee -a "$REPORT"; }
 rule() { printf '%s\n' "--------------------------------------------------------" | tee -a "$REPORT"; }
 run()  { if [[ "$DRY_RUN" == "1" ]]; then echo "  DRY: $*" >&3; return 0; fi; "$@"; }
 
-# ---------------------------------------------------------------- проверки --
+# Проверки
 # Лучше упасть здесь за секунду, чем через 11 часов обнаружить пустой ClearML.
 DS_PATH="$DATA_DIR/$DATASET_NAME"
 [[ -d "$DS_PATH" ]] || { say "НЕТ датасета: $DS_PATH"; exit 1; }
@@ -156,7 +157,7 @@ for row in "${EXPERIMENTS[@]}"; do
     rule; continue
   fi
 
-  # ------------------------------------------------------------- обучение --
+  # Обучение
   # OUT_DIR монтируется в /out, туда же трейнер кладёт clearml_task.json —
   # он и свяжет этот ран с будущим прогоном бенча.
   start=$SECONDS
@@ -174,7 +175,7 @@ for row in "${EXPERIMENTS[@]}"; do
   say "$EID обучение: rc=$rc, $(( (SECONDS-start)/60 )) мин"
   [[ $rc -ne 0 ]] && { say "$EID -> дальше не идём (лог: $LOGS/$EID.train.log)"; rule; continue; }
 
-  # ------------------------------------------- LoRA: слить адаптер в веса --
+  # LoRA: слить адаптер в веса
   # vLLM не умеет адаптеры, поэтому бенчить можно только слитую модель.
   MODEL_HOST="$OUT_HOST"
   if [[ -f "$OUT_HOST/adapter_config.json" || "$DRY_RUN" == "1" ]]; then
@@ -192,7 +193,7 @@ for row in "${EXPERIMENTS[@]}"; do
 
   [[ "${SKIP_BENCH:-0}" == "1" ]] && { say "$EID бенч пропущен (SKIP_BENCH=1)"; rule; continue; }
 
-  # ----------------------------------------------------- бенч Design2Code --
+  # Бенч Design2Code
   # --max-pixels ОБЯЗАН совпадать с обучением, иначе чекпоинт меряется вне
   # своего трейн-распределения (H1 из плана экспериментов).
   # HOST_MODEL_DIR монтирует веса в бенч-контейнер по тому же пути.

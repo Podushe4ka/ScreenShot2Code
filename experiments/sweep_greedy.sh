@@ -12,7 +12,10 @@
 # Запуск: GPUS='"device=1"' TP=1 ./sweep_greedy.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."; REPO="$PWD"   # скрипт лежит в experiments/, работаем от корня репо
-BASE=/mnt/storage-1/Screenshot2Code
+# Общий диск. Путь монтирования переопределяется через STORAGE, дефолт — тот же,
+# что был вбит раньше, поэтому поведение прогонов не меняется.
+: "${STORAGE:=/mnt/storage-1}"
+BASE="$STORAGE/Screenshot2Code"
 mkdir -p "$BASE/logs/greedy"
 OUT="$BASE/checkpoints_exps/d2c-sweep"
 RUN="$OUT/full_ft_qwen3_5_4b_s42_20260805-201901"
