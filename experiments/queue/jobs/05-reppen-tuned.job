@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# NEED_GPUS=1
+# FREE_MB=25000
+#
+# РЕШАЮЩИЙ ЗАМЕР: дообученные модели с тем же штрафом за повторы, что и база.
+#
+# База под greedy без штрафа даёт 0.656, со штрафом 1.05 — 0.801. Прирост
+# +0.145 получен одним параметром декодирования, без единого шага обучения, и
+# он выше любого нашего дообученного чекпоинта (лучший 0.7449).
+#
+# Отсюда гипотеза, которая обесценивает весь трек: дообучение не столько учит
+# вёрстке, сколько лечит вырожденное зацикливание базы — а его лечит и штраф,
+# бесплатно. Проверяется только так: померить дообученные в ТОМ ЖЕ режиме.
+#
+#   если дообученные тоже прыгнут к ~0.82+ — обучение даёт что-то сверх штрафа;
+#   если останутся на ~0.75 — мы полтора месяца боролись с дефектом декодирования.
+#
+# Приоритет 05: это должно считаться раньше любых новых обучений, потому что
+# от результата зависит, есть ли смысл в очереди дальше.
+set -uo pipefail
+BASE=/mnt/storage-1/Screenshot2Code
+ROOT=$BASE/checkpoints_exps/wc2m-15k-ab
+
+run_one() {
+  local name="$1" model="$2"
+  [[ -f "$ROOT/bench/$name/summary.json" ]] && { echo "$name уже посчитан"; return 0; }
+  [[ -f "$model/config.json" ]] || { echo "нет весов: $model"; return 1; }
+  env IMAGE_TAG=design2code-bench:kozlov \
+      HOST_OUTDIR="$ROOT/bench/$name" HOST_HF_CACHE="$BASE/hf_cache" HOST_MODEL_DIR="$model" \
+      CONTAINER_NAME="bench-$name" GPUS="\"device=$GPU_IDS\"" SHM_SIZE=32g \
+      CLEARML_TAGS="wc2m15k-ab,$name,reppen" \
+    bash "$REPO/Evaluation/run.sh" --model "$model" \
+      --hf-dataset SALT-NLP/Design2Code-hf --hf-config default --hf-split train \
+      --n-samples 484 --batch-size 484 --max-pixels 2097152 \
+      --tensor-parallel-size 1 --gpu-memory-utilization 0.50 \
+      --max-new-tokens 16384 --num-workers 96 \
+      --repetition-penalty 1.05
+}
+
+run_one clean-198-reppen105 "$ROOT/clean/full_ft_qwen3_5_4b_s42_20260807-131309/checkpoint-198"
+run_one raw-199-reppen105   "$ROOT/raw/full_ft_qwen3_5_4b_s42_20260807-084509/checkpoint-199"
+# Пилотный E3 тем же режимом: если и он подтянется к базе, значит все три года
+# наших обучений неотличимы друг от друга при исправном декодировании.
+run_one E3-pilot3k-reppen105 "$BASE/checkpoints_exps/exps-3k/E3/full_ft_qwen3_5_4b_s42_20260804-174927"

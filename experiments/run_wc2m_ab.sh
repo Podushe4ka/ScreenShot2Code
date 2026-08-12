@@ -39,6 +39,13 @@ PIXELS="${PIXELS:-2097152}"
 BENCH_N="${BENCH_N:-484}"
 BENCH_MAX_NEW="${BENCH_MAX_NEW:-16384}"
 GPU_UTIL="${GPU_UTIL:-0.50}"
+# Метрика (рендер + block match) — две трети времени бенча и она CPU-bound:
+# на замере clean-checkpoint-198 генерация заняла 31 мин из 91. Дефолт 16
+# воркеров остался с тех пор, когда каждый воркер грузил свою копию CLIP на
+# карту; теперь CLIP живёт в одном общем процессе (clip_server.py), и потолок
+# по VRAM снят — упираемся только в ядра (их 112) и в /dev/shm для Chromium.
+BENCH_WORKERS="${BENCH_WORKERS:-96}"
+BENCH_SHM="${BENCH_SHM:-32g}"
 BENCH_IMAGE="${BENCH_IMAGE:-design2code-bench:latest}"
 BENCH_DATASET="${BENCH_DATASET:-SALT-NLP/Design2Code-hf}"
 
@@ -213,7 +220,14 @@ bench_checkpoints() {
 
   # Бенчим КАЖДЫЙ чекпоинт: смысл N чекпоинтов в том, чтобы увидеть, где
   # начинается деградация, а не только куда пришли в конце.
-  for ckpt in $(ls -d "$weights"/checkpoint-*/ 2>/dev/null | sort -V) "$weights"; do
+  # Корень прогона бенчим, ТОЛЬКО если чекпоинтов нет: финальное сохранение
+  # кладёт туда те же веса, что и последний checkpoint-N, и лишний прогон
+  # стоит полтора часа карты ради второго замера одной и той же модели.
+  local targets
+  targets=$(ls -d "$weights"/checkpoint-*/ 2>/dev/null | sort -V)
+  [[ -z "$targets" ]] && targets="$weights"
+
+  for ckpt in $targets; do
     ckpt="${ckpt%/}"
     [[ -f "$ckpt/config.json" ]] || continue
     tag="$name-$(basename "$ckpt")"
@@ -224,16 +238,27 @@ bench_checkpoints() {
     local start=$SECONDS
     env IMAGE_TAG="$BENCH_IMAGE" HOST_OUTDIR="$RUN_ROOT/bench/$tag" \
         HOST_HF_CACHE="$HF_CACHE" HOST_MODEL_DIR="$ckpt" \
-        CONTAINER_NAME="bench-$tag" GPUS="$GPUS" \
+        CONTAINER_NAME="bench-$tag" GPUS="$GPUS" SHM_SIZE="$BENCH_SHM" \
         CLEARML_TAGS="wc2m15k-ab,$name,$(basename "$ckpt")" \
-      "$REPO/Evaluation/run.sh" \
+      bash "$REPO/Evaluation/run.sh" \
         --model "$ckpt" \
         --hf-dataset "$BENCH_DATASET" --hf-config default --hf-split train \
         --n-samples "$BENCH_N" --batch-size "$BENCH_N" \
         --max-pixels "$PIXELS" --tensor-parallel-size "$BENCH_TP" \
         --gpu-memory-utilization "$GPU_UTIL" --max-new-tokens "$BENCH_MAX_NEW" \
+        --num-workers "$BENCH_WORKERS" \
       > "$LOGS/$tag.bench.log" 2>&1
-    say "$tag бенч: rc=$?, $(( (SECONDS-start)/60 )) мин"
+    local rc=$?
+    say "$tag бенч: rc=$rc, $(( (SECONDS-start)/60 )) мин"
+    # Мгновенное падение — это отказ конвейера, а не свойство чекпоинта:
+    # ровно так вся ночь ушла впустую, когда Evaluation/run.sh оказался без
+    # флага исполняемости и каждый из десяти бенчей падал за 0 секунд.
+    # Прогонять оставшиеся девять в такой ситуации бессмысленно.
+    if (( rc != 0 && SECONDS - start < 60 )); then
+      say "$tag: бенч упал мгновенно (rc=$rc) — конвейер сломан, дальше не иду"
+      say "  смотреть: $LOGS/$tag.bench.log"
+      return 1
+    fi
     if [[ -f "$RUN_ROOT/bench/$tag/summary.json" ]]; then
       say "  $(python3 -c "
 import json; d=json.load(open('$RUN_ROOT/bench/$tag/summary.json'))

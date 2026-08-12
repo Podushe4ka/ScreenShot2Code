@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# NEED_GPUS=2
+# FREE_MB=5000
+#
+# Вторая эпоха на чистом 15k поверх весов первой.
+#
+# Кривая на конце первой эпохи НЕ вышла на плато: прирост между 160 и 198 шагом
+# (0.025) больше, чем между 120 и 160 (0.006). Читать вместе с 10-anneal-ckpt120:
+# если рост рисует расписание LR, вторая эпоха даст меньше, чем кажется.
+set -uo pipefail
+BASE=/mnt/storage-1/Screenshot2Code
+# ROOT монтируется в контейнер как /out. Внутри образа sft общего диска по пути
+# /mnt/storage-1 НЕ существует (он есть только у образа бенча), поэтому и веса,
+# и вывод адресуются через /out — иначе HF принимает путь за имя репозитория.
+ROOT=$BASE/checkpoints_exps/wc2m-15k-ab
+CLEAN=clean/full_ft_qwen3_5_4b_s42_20260807-131309
+# Микробатч 2, а не 4: на двух картах прогон занимает ~72 из 79 ГБ и падает,
+# стоит соседу занять 7. При вдвое большем accum эффективный батч тот же — 64.
+MICRO=2
+ACCUM=$(( 64 / (MICRO * GPU_COUNT) )); (( ACCUM < 1 )) && ACCUM=1
+
+env DATA_DIR="$BASE/data" HF_CACHE="$BASE/hf_cache" OUT_DIR="$ROOT" \
+    GPUS="\"device=$GPU_IDS\"" CONTAINER_HOME="$BASE/container-home" \
+    CLEARML_TAGS="wc2m15k-ab,clean-ep2" SFT_MAX_PIXELS=2097152 \
+  "$REPO/SFT/run.sh" \
+    torchrun --nproc_per_node="$GPU_COUNT" --tee 3 -m train.train_sft \
+      --config configs/full_ft_qwen3_5_4b.yaml \
+      --dataset_name /data/webcode2m_ab_clean_split \
+      --model_name_or_path /out/$CLEAN \
+      --per_device_train_batch_size "$MICRO" --gradient_accumulation_steps "$ACCUM" \
+      --learning_rate 1e-5 --num_train_epochs 1 \
+      --save_strategy steps --save_steps 0.34 --save_total_limit 3 \
+      --report_to clearml --output_dir /out/clean-ep2 || exit 1
+
+W=$(ls -dt "$ROOT/clean-ep2"/*/ 2>/dev/null | head -1); W="${W%/}"
+[[ -f "$W/config.json" ]] || { echo "весов нет в $ROOT/clean-ep2"; exit 1; }
+
+env IMAGE_TAG=design2code-bench:kozlov \
+    HOST_OUTDIR="$ROOT/bench/clean-ep2" HOST_HF_CACHE="$BASE/hf_cache" HOST_MODEL_DIR="$W" \
+    CONTAINER_NAME="bench-clean-ep2" GPUS="\"device=${GPU_IDS%%,*}\"" SHM_SIZE=32g \
+    CLEARML_TAGS="wc2m15k-ab,clean-ep2" \
+  bash "$REPO/Evaluation/run.sh" --model "$W" \
+    --hf-dataset SALT-NLP/Design2Code-hf --hf-config default --hf-split train \
+    --n-samples 484 --batch-size 484 --max-pixels 2097152 \
+    --tensor-parallel-size 1 --gpu-memory-utilization 0.50 \
+    --max-new-tokens 16384 --num-workers 96

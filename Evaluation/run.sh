@@ -32,7 +32,13 @@
 #                    задайте HOST_STORAGE=<реальный путь> — путь ВНУТРИ контейнера всё равно
 #                    останется /mnt/storage-1, так что --model из примеров выше не меняется.
 #   GPUS           - какие GPU пробросить (по умолчанию all)
-#   CONTAINER_NAME - имя контейнера (по умолчанию design2code-bench)
+#   CONTAINER_NAME - имя контейнера. По умолчанию design2code-bench-$(id -un):
+#                    имя ПЕРСОНАЛЬНОЕ, потому что машины общие — см. ниже.
+#   SHM_SIZE       - размер /dev/shm контейнера (по умолчанию 4g). Поднимать при
+#                    большом --num-workers: Chromium падает с "Target crashed".
+#   HOST_MODEL_DIR - каталог с чекпоинтом вне HF-кэша и вне HOST_STORAGE;
+#                    монтируется в контейнер по тому же пути, read-only.
+#   FORCE_RM       - 1, чтобы снести РАБОТАЮЩИЙ контейнер-тёзку (по умолчанию отказ).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,7 +48,12 @@ HOST_OUTDIR="${HOST_OUTDIR:-$SCRIPT_DIR/bench_results}"
 HOST_HF_CACHE="${HOST_HF_CACHE:-$HOME/.cache/huggingface}"
 HOST_STORAGE="${HOST_STORAGE:-/mnt/storage-1}"
 GPUS="${GPUS:-all}"
-CONTAINER_NAME="${CONTAINER_NAME:-design2code-bench}"
+# Имя контейнера по умолчанию — С ИМЕНЕМ ПОЛЬЗОВАТЕЛЯ. Прежний дефолт был
+# просто `design2code-bench`, то есть один и тот же у всех, кто запускает бенч
+# из этого репозитория на общей машине. Ниже стоит `docker rm -f` по точному
+# совпадению имени — значит второй запустившийся МОЛЧА сносил чужой идущий
+# прогон. Машины общие, так что дефолт обязан быть персональным.
+CONTAINER_NAME="${CONTAINER_NAME:-design2code-bench-$(id -un)}"
 
 mkdir -p "$HOST_OUTDIR" "$HOST_HF_CACHE"
 
@@ -80,8 +91,24 @@ done
 # после docker stop) — уберём его перед пересозданием, иначе `docker run
 # --name` откажется стартовать с "the container name is already in use".
 # Volume-данные (outdir/hf_cache) при этом не трогаются - они на хосте.
-if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
-    echo "[run] Удаляю старый контейнер $CONTAINER_NAME (данные в volume сохранены)..."
+# ⚠ РАБОТАЮЩИЙ контейнер не трогаем: на общих машинах это чужой прогон на
+# несколько часов, и снести его молча — худшее, что может сделать скрипт.
+# Останавливаем только УЖЕ ЗАВЕРШЁННЫЙ тёзка (иначе docker run --name
+# откажется стартовать). Перебить живой можно явно: FORCE_RM=1.
+if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    if [[ "${FORCE_RM:-0}" == "1" ]]; then
+        echo "[run] FORCE_RM=1 — сношу РАБОТАЮЩИЙ контейнер $CONTAINER_NAME" >&2
+        docker rm -f "$CONTAINER_NAME" >/dev/null
+    else
+        echo "ОШИБКА: контейнер $CONTAINER_NAME уже РАБОТАЕТ." >&2
+        echo "Это может быть чужой прогон на общей машине. Проверьте:" >&2
+        echo "  docker ps --filter name=$CONTAINER_NAME" >&2
+        echo "Запуститесь под своим именем (CONTAINER_NAME=...) либо, если" >&2
+        echo "контейнер точно ваш и его не жалко, повторите с FORCE_RM=1." >&2
+        exit 1
+    fi
+elif docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    echo "[run] Убираю завершённый контейнер $CONTAINER_NAME (данные в volume сохранены)..."
     docker rm -f "$CONTAINER_NAME" >/dev/null
 fi
 
@@ -95,12 +122,6 @@ echo "[run] GPU:           $GPUS"
 echo "[run] Аргументы скрипту: $* "
 echo
 
-# --shm-size: и vLLM (KV-cache/тензорный параллелизм), и Playwright/Chromium
-# (см. render.py — --disable-gpu, но /dev/shm по умолчанию у Docker всего
-# 64MB) требуют больше дефолтного /dev/shm; без этого Chromium периодически
-# падает с "Target crashed"/"Target closed" под нагрузкой в несколько
-# параллельных воркеров (--num-workers > 1).
-#
 # --outdir всегда фиксирован на /app/output внутри контейнера (примонтирован
 # с хоста) - остальные аргументы (--n-samples, --batch-size, --model, и т.д.)
 # прозрачно прокидываются как есть в run_benchmark_batched.py через "$@".
@@ -120,8 +141,10 @@ if [[ -n "${HOST_MODEL_DIR:-}" ]]; then
     MODEL_MOUNT=(-v "$HOST_MODEL_DIR:$HOST_MODEL_DIR:ro")
 fi
 
-# --shm-size: Chromium под нагрузкой нескольких воркеров падает с "Target crashed"
-# при малом /dev/shm. 1g не хватало на 16 воркеров и высокие страницы — берём 4g.
+# --shm-size: дефолтные 64 МБ у Docker малы и vLLM (KV-cache, тензорный
+# параллелизм), и Chromium под несколькими воркерами — тот падает с
+# "Target crashed"/"Target closed". 1g не хватало на 16 воркеров и высокие
+# страницы, поэтому 4g; при --num-workers под сотню задавайте SHM_SIZE=32g.
 docker run \
     --name "$CONTAINER_NAME" \
     --gpus "$GPUS" \

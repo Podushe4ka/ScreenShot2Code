@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# NEED_GPUS=1
+# FREE_MB=25000
+#
+# Свип штрафа за повторы — по базе и по лучшему дообученному.
+#
+# Обоснование. Один параметр декодирования дал базе +0.145 (0.656 -> 0.801),
+# больше, чем все обучения проекта вместе взятые, и вывел её ВЫШЕ любого нашего
+# чекпоинта. Значит главный дефект был не в данных и не в рецепте, а в том, что
+# argmax-траектория срывается в повтор и мелет до потолка токенов.
+#
+# 1.05 взят наугад — это первое, что попробовали. Оптимум не искали вовсе.
+# Здесь ищем: слишком слабый штраф не разрывает цикл, слишком сильный ломает
+# легитимные повторы (а в вёрстке их много: одинаковые карточки, строки таблиц,
+# повторяющиеся классы), и скор снова падает. Ожидаем купол с максимумом.
+#
+# Обе модели, а не только база: у дообученной распределение другое, и её
+# оптимум может лежать в иной точке. Сравнивать надо лучшее с лучшим, иначе
+# повторим ту же ошибку, из-за которой база полтора месяца числилась слабее.
+set -uo pipefail
+BASE=/mnt/storage-1/Screenshot2Code
+ROOT=$BASE/checkpoints_exps/wc2m-15k-ab
+CLEAN=$ROOT/clean/full_ft_qwen3_5_4b_s42_20260807-131309/checkpoint-198
+
+run_one() {
+  local name="$1" model="$2" pen="$3"
+  [[ -f "$ROOT/bench/$name/summary.json" ]] && { echo "$name уже посчитан"; return 0; }
+  local mount=()
+  [[ -d "$model" ]] && mount=(HOST_MODEL_DIR="$model")
+  env IMAGE_TAG=design2code-bench:kozlov \
+      HOST_OUTDIR="$ROOT/bench/$name" HOST_HF_CACHE="$BASE/hf_cache" "${mount[@]}" \
+      CONTAINER_NAME="bench-$name" GPUS="\"device=$GPU_IDS\"" SHM_SIZE=32g \
+      CLEARML_TAGS="wc2m15k-ab,sweep-reppen,$name" \
+    bash "$REPO/Evaluation/run.sh" --model "$model" \
+      --hf-dataset SALT-NLP/Design2Code-hf --hf-config default --hf-split train \
+      --n-samples 484 --batch-size 484 --max-pixels 2097152 \
+      --tensor-parallel-size 1 --gpu-memory-utilization 0.50 \
+      --max-new-tokens 16384 --num-workers 96 \
+      --repetition-penalty "$pen"
+}
+
+# Точки 1.00 и 1.05 уже сняты для обеих моделей — здесь только новые.
+for pen in 1.02 1.10 1.15; do
+  run_one "E0-base-reppen${pen/./}" Qwen/Qwen3.5-4B "$pen"
+done
+for pen in 1.10 1.15; do
+  run_one "clean-198-reppen${pen/./}" "$CLEAN" "$pen"
+done
