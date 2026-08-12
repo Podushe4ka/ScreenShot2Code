@@ -11,7 +11,8 @@
 |---|---|
 | [`PLAN.md`](PLAN.md) | Этот файл — план работ и дорожная карта |
 | [`list_data.md`](list_data.md) | Каталог датасетов: train-кандидаты, бенчмарки, смежное |
-| [`converters/`](converters/) | источник → формат контракта: [`websight/`](converters/websight/), [`webcode2m/`](converters/webcode2m/) + общий [`make_split.py`](converters/make_split.py) |
+| [`converters/`](converters/) | источник → формат контракта: [`websight/`](converters/websight/), [`webcode2m/`](converters/webcode2m/), [`synth/`](converters/synth/) + общий [`make_split.py`](converters/make_split.py) |
+| [`generators/synth/`](generators/synth/) | генерация синтетики: сиды, ТЗ, пачки, [промпты](generators/synth/prompts/README.md) |
 | [`eda/`](eda/) | Этап 0 — разведка корпусов (обзоры + [`notebooks/`](eda/notebooks/) + [`tools/`](eda/tools/)) |
 | [`papers/`](papers/) | PDF статей ко всем датасетам и методу ([индекс](papers/README.md)) |
 
@@ -22,7 +23,8 @@
 
 **Статус:** ✅ Этап 0 (разведка + токенные метрики, перепрогон на v0.2) · ✅ Этап 1
 (конвертер работает на обоих источниках: параллельный батч через Docker,
-self-contained, ~5k за пару минут) · ⏳ Этапы 2–4 (рендерер, синтетика, масштаб).
+self-contained, ~5k за пару минут) · 🔄 Этап 3 (конвейер reverse-construction
+синтетики собран, генерация в объёме не прогнана) · ⏳ Этапы 2 и 4.
 
 ⚠ Приоритет Этапа 3 (reverse-construction) вырос: дообучение на WebCode2M базу не
 бьёт, и разбор в [`../docs/ROADMAP.md`](../docs/ROADMAP.md) относит причину к самим
@@ -145,10 +147,32 @@ Playwright+Chromium) + метрики `visual_eval_v3_multi`. Переиспол
 - [ ] детерминизм: без сетевых вызовов (отсюда запрет Tailwind-CDN), фикс шрифтов/DPI;
 - [ ] отсев не-рендерящихся страниц для гигиены Этапа 1.
 
-### Этап 3 — Reverse-construction синтетика (polishing + editing)
-- [ ] polishing: эталонный HTML → «порча» / прогон через VLM → пары `(target, bad_code, render) → good_code`;
-- [ ] editing: операции add/del/replace/adjust; **addition = разворот deletion-пар**;
-      инструкции на естественном языке; фильтр эвристиками + ручная проверка.
+### Этап 3 — Reverse-construction синтетика (polishing + editing)  ◀ КОНВЕЙЕР СОБРАН
+
+Схема обратная привычной (UI2Code^N §3.2.2): сначала пишется идеальный HTML, потом из
+него рендерится скриншот, и уже скриншот становится запросом к модели. Генерация ТЗ —
+`generators/synth/`, приёмка и сборка — `converters/synth/`. Полное описание конвейера —
+[`README.md`](README.md), промпты исполнителю — [`generators/synth/prompts/`](generators/synth/prompts/README.md).
+
+Готово:
+- [x] сиды ТЗ из реальных корпусов (`fetch_seeds.py`) — содержание не выдумывается;
+- [x] `briefs.jsonl` как сетка **покрытия** по тиру/языку/impl, а не случайный розыгрыш
+      (`make_briefs.py`); отбор разнообразия — farthest-point sampling по TF-IDF;
+- [x] разбивка на пачки, однородные по `impl` (`make_batches.py`);
+- [x] приёмка сгенерированного: линт → рендер → отбраковка по DOM/скриншоту/бюджету
+      токенов, near-dup по average-hash (`build.py`);
+- [x] **два стиля вывода** `static_inline` и `react_cdn`; для react скриншот снимается с
+      материализованного DOM, а в таргет едет сырой исходник (`renderlib.py`);
+- [x] вендоринг CDN-библиотек с пиннутыми версиями (`fetch_vendor.sh`) — рендер офлайновый;
+- [x] детектор машинных дефолтов как метрика разнообразия набора (`slop.py`), **отчёт, не отбраковка**;
+- [x] polishing: порча вёрстки → пары `(эталон, испорченный рендер) → эталонный код` (`degrade.py`);
+- [x] editing: операции над страницей → пары с инструкцией (`mutate.py`);
+- [x] сборка под контракт и разрез, не разрывающий страницу между сплитами
+      (`pack.py`, `make_split_grouped.py`); контактный лист для проверки глазами.
+
+Осталось:
+- [ ] прогнать генерацию в объёме и замерить долю приёмки;
+- [ ] обучение на синтетике и сравнение с WebCode2M.
 - Ориентир объёма — доля от ~80K SFT (см. §2).
 
 ### Этап 4 — Масштабирование претрейн-корпуса

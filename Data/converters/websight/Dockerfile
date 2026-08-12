@@ -4,11 +4,11 @@
 # не нужны sudo / `playwright install-deps`.
 #
 # Сборка (из КОРНЯ репозитория):
-#     docker build -t ws-conv -f Data/drafting/Dockerfile .
+#     docker build -t ws-conv -f Data/converters/websight/Dockerfile .
 # Запуск (код+датасет монтируем томом -> результат в Data/websight_drafting_pilot/ на хосте):
 #     docker run --rm -v "$PWD":/work --shm-size=2g ws-conv --target 5000 --n-workers 32
 #   быстрая проверка: ... ws-conv --target 200 --n-workers 16
-#   с токеном:        docker run --rm -e HF_TOKEN=hf_xxx -v "$PWD":/work --shm-size=2g ws-conv
+#   с токеном:        docker run --rm -e HF_TOKEN=... -v "$PWD":/work --shm-size=2g ws-conv
 #
 # Заметки: --shm-size=2g обязателен (Chromium/dev-shm); GPU не нужен; playwright пинаем под версию образа.
 
@@ -23,11 +23,11 @@ RUN python -m pip install --no-cache-dir --upgrade pip && \
 # torch — CPU-версия, нужна только для --token-report (пересчёт токенов Qwen-токенайзером).
 # Основной прогон (сборка датасета) transformers/torch НЕ грузит — токен-функции ленивые.
 
-# Код монтируется томом: -v "$PWD":/work (convert_parallel.py + convert_lib.py + ../analysis/token_len.py)
+# Код монтируется томом: -v "$PWD":/work (convert_parallel.py + convert_lib.py + eda/tools/token_len.py).
 # WORKDIR = Data/, чтобы дефолтный --out ./websight_drafting_pilot падал прямо в Data/ на хосте
-# (а не в Data/drafting/). Импорты не зависят от CWD: convert_lib находит analysis/ через __file__,
-# а папку скрипта Python сам добавляет в sys.path.
+# (а не в Data/converters/websight/). Импорты не зависят от CWD: convert_lib находит eda/tools
+# через __file__, а папку скрипта Python сам добавляет в sys.path.
 WORKDIR /work/Data
 
-ENTRYPOINT ["python", "drafting/convert_parallel.py"]
+ENTRYPOINT ["python", "converters/websight/convert_parallel.py"]
 CMD ["--target", "5000", "--n-workers", "32"]
