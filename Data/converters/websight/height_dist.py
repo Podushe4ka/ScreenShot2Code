@@ -44,9 +44,13 @@ def heights_from_arrow(path):
 
 
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 2 or sys.argv[1] in ("-h", "--help"):
         sys.exit("использование: python height_dist.py <датасет-dir | .arrow>")
     path = sys.argv[1]
+    # Путь проверяем до чтения: иначе опечатка даёт FileNotFoundError из недр
+    # pyarrow, а не понятное сообщение.
+    if not os.path.exists(path):
+        sys.exit(f"нет такого пути: {path}")
     src = heights_from_disk(path) if os.path.isdir(path) else heights_from_arrow(path)
     hs = sorted(src)
     n = len(hs)

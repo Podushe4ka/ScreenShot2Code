@@ -26,7 +26,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("inp", help="путь к дедуплицированному датасету (load_from_disk)")
     ap.add_argument("out", help="куда сохранить DatasetDict{train, validation}")
-    ap.add_argument("--val-frac", type=float, default=0.05, help="доля в validation (0.05 = 5%)")
+    # %% — argparse форматирует help через оператор %, одиночный процент роняет --help.
+    ap.add_argument("--val-frac", type=float, default=0.05, help="доля в validation (0.05 = 5%%)")
     ap.add_argument("--seed", type=int, default=42, help="общий сид shuffle+split (воспроизводимость)")
     args = ap.parse_args()
 
