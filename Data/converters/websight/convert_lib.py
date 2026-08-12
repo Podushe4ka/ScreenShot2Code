@@ -29,31 +29,38 @@ from urllib.parse import urlparse
 # Подсчёт токенов вынесен в ЛЕНИВЫЕ обёртки: token_len -> transformers -> torch тянутся
 # ТОЛЬКО при реальном вызове count_tokens/recommend_max_length, а не при import convert_lib.
 # Так основной путь (сборка датасета, воркеры пула) не грузит transformers/torch.
-_ANALYSIS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "analysis")
+_EDA_TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "eda", "tools")
 
 
 def count_tokens(text, tokenizer):
     """Длина текста в токенах. Ленивая обёртка над ../../eda/tools/token_len.py."""
-    if _ANALYSIS not in sys.path:
-        sys.path.append(_ANALYSIS)
+    if _EDA_TOOLS not in sys.path:
+        sys.path.append(_EDA_TOOLS)
     from token_len import count_tokens as _ct
     return _ct(text, tokenizer)
 
 
 def recommend_max_length(*args, **kwargs):
     """Ориентир max_length. Ленивая обёртка над token_len.recommend_max_length."""
-    if _ANALYSIS not in sys.path:
-        sys.path.append(_ANALYSIS)
+    if _EDA_TOOLS not in sys.path:
+        sys.path.append(_EDA_TOOLS)
     from token_len import recommend_max_length as _rml
     return _rml(*args, **kwargs)
 
-# ------------------------------------------------------------------ константы
+
 RENDER_WIDTH = 1280                    # ширина вьюпорта ре-рендера; высота — по контенту
-MIN_PIXELS = 256 * 32 * 32             # оценка визуальных токенов (как в SFT/train/formatting.py)
+MIN_PIXELS = 256 * 32 * 32             # 262144 — совпадает с SFT/train/formatting.py
+# ⚠ MAX_PIXELS здесь 1.31 Мп, а обучение и бенч идут на 2.10 Мп
+# (SFT/train/formatting.py, SFT_MAX_PIXELS). Расхождение осталось с доTier-A времён:
+# конвертер оценивает визуальный бюджет строже, чем он будет на самом деле.
+# Значение НЕ трогать не глядя — от него зависит отбраковка в filter_by_height.py,
+# то есть состав уже собранных наборов. Разбор — docs/experiments/DIVERGENCES.md, K1.
 MAX_PIXELS = 1280 * 32 * 32
 TOKENIZER_ID_DEFAULT = "Qwen/Qwen3-VL-8B-Instruct"
 
-# серые плейсхолдеры — РОВНО как в Evaluation/Experiments.ipynb (менять синхронно с eval)
+# Серые плейсхолдеры обязаны посимвольно совпадать с Evaluation/render.py — бенч
+# подменяет <img> и в предсказании, и в эталоне, и расхождение конвенции сделало бы
+# обучающие таргеты непохожими на то, что метрика видит на бенче.
 PLACEHOLDER_CLASSES = ["bg-gray-300", "w-full", "h-48", "rounded"]
 PLACEHOLDER_STYLE = ("background-color:#d1d5db;width:100%;height:12rem;"
                      "border-radius:0.5rem;display:block;")
@@ -66,7 +73,6 @@ FEATURES = Features({                   # схема сэмпла (контра�
     "instruction":  Value("string"),
 })
 
-# ------------------------------------------------------------ гигиена HTML
 _BG_RE = re.compile(r'background(-image)?\s*:\s*[^;{}"\']*url\([^)]*\)[^;{}"\']*', re.I)
 _TW_CDN_RE = re.compile(r'<script\b[^>]*tailwind[^>]*>\s*</script>|<link\b[^>]*tailwind[^>]*>', re.I)
 
@@ -124,7 +130,6 @@ def fit_to_size(img, size):
     return canvas
 
 
-# ------------------------------------------------- Tailwind precompile (v4)
 def precompile_tailwind(html_text):
     """CDN-Tailwind -> инлайновый <style> (только используемые классы). Tailwind v4 через
     standalone `pytailwindcss` (без Node): input '@import "tailwindcss"' + '@source' на HTML."""
@@ -149,7 +154,6 @@ def precompile_tailwind(html_text):
     return "<!doctype html><html><head><meta charset='utf-8'>" + style + "</head><body>" + clean + "</body></html>"
 
 
-# ------------------------------------------- рендер (Playwright, свой браузер на процесс)
 _PW = {"pw": None, "browser": None}
 _RENDER_EXEC = ThreadPoolExecutor(max_workers=1)   # для ноутбука: sync-API в потоке (в Jupyter asyncio-loop)
 
@@ -214,7 +218,6 @@ def close_renderer():
     _RENDER_EXEC.submit(_close).result()
 
 
-# ------------------------------------------------------ воркер батча (для пула)
 def process_one(html_text):
     """Плейсхолдеры + precompile + рендер. Возвращает ("ok", target_html, png_bytes)
     или ("err", msg, traceback). Ошибка на странице не роняет пул."""
@@ -229,7 +232,6 @@ def process_one(html_text):
         return ("err", f"{type(e).__name__}: {e}", traceback.format_exc())
 
 
-# ------------------------------------------------------------- оценка токенов
 def qwen_image_tokens(w, h, patch=32):
     """Приближённо: процессор Qwen зажимает площадь в [MIN,MAX] пикселей; 1 токен ≈ 32x32 px.
 

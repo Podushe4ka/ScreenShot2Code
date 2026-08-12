@@ -95,7 +95,7 @@ def _visible_label(tag, limit: int = 60) -> str:
     return text[:limit] if text else tag.name
 
 
-# --------------------------------------------------------------- adjust / replace
+# adjust / replace
 
 
 # Инструкция НЕ хранится в готовом виде: она собирается из meta под нужное направление.
@@ -167,7 +167,7 @@ def op_font_weight(html: str, rng: random.Random):
                  "occurrences": len(_FONT_RE.findall(html))}
 
 
-# --------------------------------------------------------------- delete / add
+# delete / add
 
 def op_delete_block(html: str, rng: random.Random):
     """Вырезает целый блок. Возвращает ДВА сэмпла — прямой и обратный.
@@ -195,7 +195,7 @@ def op_delete_block(html: str, rng: random.Random):
     return reduced, label, kind
 
 
-# --------------------------------------------------------------------- сборка
+# сборка
 
 STYLE_OPS = [op_recolor_bg, op_recolor_text, op_font_weight]
 

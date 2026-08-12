@@ -127,6 +127,9 @@ def main():
             rec["n_domains"] = count_unique_domains(tree)
             rec["parse_ok"] = True
         except Exception:
+            # Битый HTML в корпусе — ожидаемое явление, а не сбой скрипта: доля
+            # непарсящихся страниц и есть одна из измеряемых величин. Исход
+            # записан в parse_ok, по нему считается сводка, поэтому глушим молча.
             pass
         records.append(rec)
         if len(records) % 500 == 0:
@@ -149,7 +152,11 @@ def main():
     print(f"4. DOM mean/median: {ok.dom_nodes.mean():.1f}/{ok.dom_nodes.median():.0f}")
     print(f"6. CSS декл mean/median: {ok.css_decls.mean():.1f}/{ok.css_decls.median():.0f}")
     print(f"7. Домены/стр mean: {ok.n_domains.mean():.2f}")
-    ok.to_csv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "web2code_stream_result.csv"), index=False)
+    # Рядом с обзорами (Data/eda), а не рядом со скриптом: на csv ссылается
+    # datasets_overview.md, и он лежит под git именно там.
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web2code_stream_result.csv")
+    ok.to_csv(out, index=False)
+    print(f"\nсырые строки: {os.path.normpath(out)}")
 
 
 if __name__ == "__main__":

@@ -78,8 +78,10 @@ ScreenShot2Code/
 | путь | что |
 |---|---|
 | `converters/websight/` | WebSight → формат контракта. Ядро логики в `convert_lib.py`, батч через Docker в `convert_parallel.py` |
-| `converters/webcode2m/` | WebCode2M → тот же контракт: рендер HTML → PNG через playwright, `RENDER_WIDTH=1280`. Переиспользует ядро websight-конвертера |
-| `converters/make_split.py` | финальный шаг обоих: разрез на train/validation |
+| `converters/webcode2m/` | WebCode2M → тот же контракт: рендер HTML → PNG через playwright, `RENDER_WIDTH=1280`. Переиспользует ядро websight-конвертера. `convert_raw.py` — сырой набор как контроль к чистому |
+| `converters/synth/` | синтетика (reverse construction): приёмка и рендер сгенерированных страниц, порча под polishing/editing, сборка под контракт |
+| `converters/make_split.py` | финальный шаг: разрез на train/validation |
+| `generators/synth/` | генерация синтетики: сиды, ТЗ, пачки, промпты исполнителю, вендоринг CDN |
 | `eda/` | разведка корпусов: обзоры и методика метрик; `notebooks/` по датасетам, `tools/` (длины, пиксель-бюджет, гистограммы) |
 | `papers/` | PDF статей ко всем датасетам и методу |
 | `PLAN.md`, `list_data.md` | план Data-трека и каталог источников |

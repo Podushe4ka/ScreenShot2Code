@@ -46,7 +46,7 @@ def png_size(data):
     return struct.unpack(">II", data[16:24])
 
 
-# ------------------------------------------------------------------ фаза 1
+# фаза 1
 def load_html_cache(path, target):
     """Кандидаты из кэша прошлого прогона, если их там хватает.
 
@@ -106,7 +106,7 @@ def collect_candidates(target, max_scan, near_dup):
     return htmls
 
 
-# --------------------------------------------------------------- токен-отчёт
+# токен-отчёт
 def token_report(rows, sizes):
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(TOKENIZER_ID_DEFAULT)
@@ -127,7 +127,7 @@ def token_report(rows, sizes):
               "(отсечь длинный хвост) перед SFT. Для pretrain ограничение мягче.")
 
 
-# ------------------------------------------------------------------ main
+# main
 def main():
     ap = argparse.ArgumentParser(description="WebCode2M -> формат контракта (параллельно).")
     ap.add_argument("--target", type=int, default=500)

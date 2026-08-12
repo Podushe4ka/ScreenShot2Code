@@ -7,9 +7,10 @@ Web2Code пропускаем: картинки только в Web2Code_image.z
 """
 import os
 from datasets import load_dataset
-from PIL import Image
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "examples")
+# Каталог примеров живёт рядом с обзорами (Data/eda/examples), а не рядом со
+# скриптом: на них ссылаются datasets_overview.md и dataviz_overview.html.
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "examples")
 os.makedirs(OUT, exist_ok=True)
 W = 360
 N = 3

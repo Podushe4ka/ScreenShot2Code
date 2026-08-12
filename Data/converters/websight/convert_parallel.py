@@ -21,9 +21,8 @@ from concurrent.futures import ProcessPoolExecutor
 
 from datasets import Dataset, load_dataset, load_from_disk
 
-from convert_lib import (FEATURES, MAX_PIXELS, MIN_PIXELS, RENDER_WIDTH,
-                         TOKENIZER_ID_DEFAULT, ahash, count_tokens, hamming,
-                         process_one, qwen_image_tokens)
+from convert_lib import (FEATURES, RENDER_WIDTH, TOKENIZER_ID_DEFAULT, ahash,
+                         count_tokens, hamming, process_one, qwen_image_tokens)
 
 DATASET = "HuggingFaceM4/WebSight"     # v0.2, Tailwind
 SPLIT = "train"
@@ -40,7 +39,7 @@ def png_size(data):
     return struct.unpack(">II", data[16:24])
 
 
-# ------------------------------------------------------------------ фаза 1
+# фаза 1
 def collect_candidates(target, max_scan, near_dup):
     stream = load_dataset(DATASET, split=SPLIT, streaming=True)
     htmls, seen, hashes = [], set(), []
@@ -71,7 +70,7 @@ def collect_candidates(target, max_scan, near_dup):
     return htmls
 
 
-# --------------------------------------------------------------- токен-отчёт
+# токен-отчёт
 def token_report(rows, sizes):
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(TOKENIZER_ID_DEFAULT)
@@ -90,7 +89,7 @@ def token_report(rows, sizes):
     print(f"[токены] рекомендуемый max_length (код p99 + картинка p99): {ml}")
 
 
-# ------------------------------------------------------------------ main
+# main
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", type=int, default=500)

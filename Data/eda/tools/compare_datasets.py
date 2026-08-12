@@ -14,7 +14,6 @@ import random
 
 import matplotlib.pyplot as plt
 from datasets import load_dataset
-from PIL import Image as PILImage
 
 # (метка, путь, split, поле картинки)
 DATASETS = [
@@ -83,6 +82,8 @@ def main():
     try:
         plt.show()
     except Exception:
+        # Без дисплея (сервер, ssh без X) show() падает — картинка уже сохранена
+        # на диск строкой выше, так что показывать нечего и падать не за что.
         pass
 
 

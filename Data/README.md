@@ -20,15 +20,48 @@
 |---|---|
 | [`converters/`](converters/) | источник → формат контракта. По папке на датасет + общий финальный шаг |
 | [`converters/websight/`](converters/websight/) | WebSight: ядро логики (`convert_lib.py`), батч через Docker (`convert_parallel.py`, `Dockerfile`), просмотр (`view_arrow.py`), передача в SFT (`HANDOFF.md`) |
-| [`converters/webcode2m/`](converters/webcode2m/) | WebCode2M: реальные страницы. Переиспользует ядро WebSight-конвертера, не дублирует его |
-| [`converters/make_split.py`](converters/make_split.py) | финальный шаг обоих: разрез на `train`/`validation` для `eval_loss` |
+| [`converters/webcode2m/`](converters/webcode2m/) | WebCode2M: реальные страницы. Переиспользует ядро WebSight-конвертера, не дублирует его. `convert_raw.py` собирает **сырой** набор — контроль к чистому |
+| [`converters/synth/`](converters/synth/) | синтетика: приёмка и рендер сгенерированных страниц, порча под polishing/editing, сборка датасета |
+| [`converters/make_split.py`](converters/make_split.py) | финальный шаг: разрез на `train`/`validation` для `eval_loss` |
+| [`generators/synth/`](generators/synth/) | генерация синтетики: сиды, ТЗ, пачки, [промпты](generators/synth/prompts/README.md), вендоринг CDN |
 | [`eda/`](eda/) | разведка корпусов: сводка [`datasets_overview.md`](eda/datasets_overview.md), методика метрик [`required_data.md`](eda/required_data.md), особенности [`dataset_notes.md`](eda/dataset_notes.md) |
 | [`eda/notebooks/`](eda/notebooks/) | ноутбуки по датасетам: `webcode2m`, `websight`, `webui` |
 | [`eda/tools/`](eda/tools/) | счётчики и графики: `token_len.py`, `pixel_budget.py`, `plot_hist.py`, `compare_datasets.py` |
 | [`papers/`](papers/) | PDF статей ко всем датасетам и методу ([индекс](papers/README.md)) |
 
 Не в git (регенерируются, лежат локально): `images/`, `report.html` — выхлоп
-`view_arrow.py`; `websight_drafting_pilot/` — собранный датасет, передаётся диском.
+`view_arrow.py`; `websight_drafting_pilot/` — собранный датасет, передаётся диском;
+`vendor/` — локальные копии CDN-библиотек (`generators/synth/fetch_vendor.sh`);
+`synth_pilot/` — сиды, сгенерированные страницы, скриншоты и готовый синтетический набор.
+
+## Синтетика: reverse construction
+
+Схема обратная привычной (UI2Code^N 2511.08195 §3.2.2): сначала пишется идеальный
+HTML, потом из него рендерится скриншот, и уже скриншот становится запросом к модели.
+Качество страницы — это буквально качество разметки, которую модель выучит наизусть,
+поэтому приёмка жёсткая.
+
+```
+generators/synth/fetch_seeds.py     реальные ТЗ-сиды (не выдумываем содержание)
+generators/synth/make_briefs.py     briefs.jsonl — сетка ПОКРЫТИЯ (тир, язык, impl)
+generators/synth/make_batches.py    разбивка на пачки под исполнителя
+        │  исполнитель пишет <id>.html по prompts/01_page_generation.md
+        ▼
+converters/synth/build.py           линт → рендер → отбраковка → manifest.jsonl
+converters/synth/mutate.py          порча страницы → пары для editing
+converters/synth/degrade.py         порча вёрстки → пары для polishing
+converters/synth/pack.py            сборка под контракт (drafting+editing+polishing)
+converters/synth/make_split_grouped.py   разрез, НЕ разрывая страницу между сплитами
+```
+
+Вспомогательное: `renderlib.py` — рендер с материализацией DOM (для `react_cdn`
+скриншот снимается с отрисованного React, а в `target_html` едет сырой исходник);
+`slop.py` — детектор машинных дефолтов, метрика разнообразия набора, **отчёт, а не
+отбраковка**; `contact_sheet.py` — контактный лист для глазной проверки.
+
+Два стиля вывода (`impl`): `static_inline` и `react_cdn`. Стиль едет в датасет
+отдельной колонкой и выбирает промпт в `SFT/train/formatting.py` — иначе один и тот же
+скриншот отображался бы в два разных валидных таргета, а это противоречивый супервижн.
 
 ## Почему конвертеры названы по источнику
 
