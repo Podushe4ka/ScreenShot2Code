@@ -10,9 +10,8 @@ IMAGE_TAG="${1:-design2code-bench:latest}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Dockerfile ожидает COPY render.py metrics.py
-# run_benchmark_batched.py — проверяем ДО docker build, а не
-# получаем невнятную ошибку "COPY failed: file not found" посреди сборки.
+# Список обязан совпадать со строкой COPY в Dockerfile. Проверяем ДО docker build,
+# иначе получаем невнятное "COPY failed: file not found" посреди долгой сборки.
 required_files=(render.py metrics.py clip_server.py run_benchmark_batched.py tracking.py)
 missing=()
 for f in "${required_files[@]}"; do
@@ -23,7 +22,7 @@ done
 
 if [[ ${#missing[@]} -gt 0 ]]; then
     echo "ОШИБКА: рядом с Dockerfile не найдены файлы: ${missing[*]}"
-    echo "Положите их в $SCRIPT_DIR перед сборкой (или уберите test.py из COPY в Dockerfile, если он не нужен)."
+    echo "Положите их в $SCRIPT_DIR перед сборкой либо уберите из COPY в Dockerfile."
     exit 1
 fi
 
