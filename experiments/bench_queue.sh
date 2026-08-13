@@ -60,7 +60,7 @@ for job in "${JOBS[@]}"; do
       ${MOUNT:+HOST_MODEL_DIR="$MOUNT"} \
       CONTAINER_NAME="bench-$NAME" GPUS="\"device=$GPU\"" SHM_SIZE="$SHM" \
       CLEARML_TAGS="wc2m15k-ab,$NAME" \
-    bash "$REPO/Evaluation/run.sh" \
+    bash "$REPO/Evaluation/metrics_only/run.sh" \
       --model "$MODEL" \
       --hf-dataset SALT-NLP/Design2Code-hf --hf-config default --hf-split train \
       --n-samples "$BENCH_N" --batch-size "$BENCH_N" \

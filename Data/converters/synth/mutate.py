@@ -30,7 +30,7 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO / "Evaluation"))
+sys.path.insert(0, str(REPO / "Evaluation" / "metrics_only"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import render as ev_render  # noqa: E402

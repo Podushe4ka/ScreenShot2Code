@@ -175,7 +175,7 @@ env IMAGE_TAG="$BENCH_IMAGE" \
     HOST_MODEL_DIR="$WEIGHTS" \
     CONTAINER_NAME="bench-wc2m15k" GPUS="$GPUS" \
     CLEARML_TAGS="wc2m15k,full_ft,lr$LR" \
-  "$REPO/Evaluation/run.sh" \
+  "$REPO/Evaluation/metrics_only/run.sh" \
     --model "$WEIGHTS" \
     --hf-dataset "$BENCH_DATASET" --hf-config default --hf-split train \
     --n-samples "$BENCH_N" --batch-size "$BENCH_N" \

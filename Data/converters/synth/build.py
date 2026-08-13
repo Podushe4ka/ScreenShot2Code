@@ -5,7 +5,7 @@
 исходник со скриптами. Учим модель писать исходник, а не разжёванный DOM. Число DOM-узлов
 для проверки тира считается тоже по материализованному — в сыром там один `<div id="root">`.
 
-Рендер идёт через Evaluation/render.py и Data/converters/websight/convert_lib.py, теми же
+Рендер идёт через Evaluation/metrics_only/render.py и Data/converters/websight/convert_lib.py, теми же
 функциями, что и остальные наборы, чтобы скриншоты были сравнимы.
 
 Использование:

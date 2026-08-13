@@ -14,7 +14,7 @@ TP="${TP:-$NPROC}"                                      # TP бенча != NPROC
 GPUS="${GPUS:-\"device=0,1\"}"
 OUT="$BASE/checkpoints_exps/d2c-sweep"
 # Два образа — два разных монтирования одного диска, пути НЕ взаимозаменяемы:
-# sft монтирует /mnt/storage-1 как /storage, Evaluation/run.sh — как /mnt/storage-1:ro,
+# sft монтирует /mnt/storage-1 как /storage, Evaluation/metrics_only/run.sh — как /mnt/storage-1:ro,
 # а HF-кэш ($BASE/hf_cache) кладёт в /root/.cache/huggingface.
 BENCH_DS_C=/storage/Screenshot2Code/hf_cache/d2c_short_bench   # для образа sft
 BENCH_DS_E=/root/.cache/huggingface/d2c_short_bench            # для образа бенча
@@ -56,7 +56,7 @@ for CKPT in $(ckpts); do
     say "ep$EP: бенч чекпоинта $STEP шагов..."
     env IMAGE_TAG=design2code-bench:latest HOST_OUTDIR="$BDIR" HOST_HF_CACHE="$BASE/hf_cache" \
         HOST_MODEL_DIR="$CKPT" CONTAINER_NAME="sweep-ep$EP" GPUS="$GPUS" CLEARML_DISABLE=1 \
-        "$REPO/Evaluation/run.sh" --no-resume --model "$CKPT" \
+        "$REPO/Evaluation/metrics_only/run.sh" --no-resume --model "$CKPT" \
           --hf-dataset "$BENCH_DS_E" --hf-config default --hf-split train \
           --n-samples "$NREAL" --batch-size "$NREAL" --n-examples-per-batch 4 \
           --max-pixels 2097152 --tensor-parallel-size "$TP" \

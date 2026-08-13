@@ -113,7 +113,7 @@ if [[ -n "$BASE_MODEL" && ! -f "$RESULT_DIR/E0-base-bench/summary.json" ]]; then
   env IMAGE_TAG="$BENCH_IMAGE" HOST_OUTDIR="$RESULT_DIR/E0-base-bench" \
       HOST_HF_CACHE="$HF_CACHE" CONTAINER_NAME="bench-E0" GPUS="$GPUS" \
       CLEARML_TAGS="E0,base,pilot1k" \
-      "$REPO/Evaluation/run.sh" --model "$BASE_MODEL" \
+      "$REPO/Evaluation/metrics_only/run.sh" --model "$BASE_MODEL" \
         --hf-dataset "$BENCH_DATASET" --hf-config default --hf-split train \
         --n-samples "$BENCH_N" --batch-size "$BENCH_N" \
         --max-pixels "$DEFAULT_PIXELS" --tensor-parallel-size "$BENCH_TP" \
@@ -182,7 +182,7 @@ for OUT in "$RESULT_DIR"/E[0-9]*; do
       HOST_MODEL_DIR="$MODEL" \
       CONTAINER_NAME="bench-$EID" GPUS="$GPUS" \
       CLEARML_TAGS="$EID,pilot1k" \
-      "$REPO/Evaluation/run.sh" \
+      "$REPO/Evaluation/metrics_only/run.sh" \
         --model "$MODEL" \
         --hf-dataset "$BENCH_DATASET" --hf-config default --hf-split train \
         --n-samples "$BENCH_N" --batch-size "$BENCH_N" \

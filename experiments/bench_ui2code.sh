@@ -61,7 +61,7 @@ run(){ local name="$1" pfile="${2:-}"; local bdir="$OUT/bench-$name"
   say "$name: промпт = ${pfile:-встроенный}"
   env IMAGE_TAG=design2code-bench:latest HOST_OUTDIR="$bdir" HOST_HF_CACHE="$BASE/hf_cache" \
       CONTAINER_NAME="ui2code-$name" GPUS="$GPUS" \
-      "$REPO/Evaluation/run.sh" --no-resume --model "$MODEL" \
+      "$REPO/Evaluation/metrics_only/run.sh" --no-resume --model "$MODEL" \
         --hf-dataset "$BENCH_DS_E" --hf-config default --hf-split train \
         --n-samples "$NREAL" --batch-size "$NREAL" --n-examples-per-batch "$NREAL" \
         --temperature 0 --min-pixels 0 --max-pixels 0 --materialize-dom \

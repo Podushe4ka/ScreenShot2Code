@@ -4,7 +4,7 @@
 
 ## Что нашли
 
-`Evaluation/run_benchmark_batched.py` вызывал генерацию так:
+`Evaluation/metrics_only/run_benchmark_batched.py` вызывал генерацию так:
 
 ```python
 sampling_params = SamplingParams(max_tokens=max_new_tokens)

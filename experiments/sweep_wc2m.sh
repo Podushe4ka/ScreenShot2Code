@@ -78,7 +78,7 @@ bench(){ local name="$1" model="$2"; local bdir="$OUT/bench-$name"
   local mnt=""; [[ -d "$model" ]] && mnt="$model"
   env IMAGE_TAG=design2code-bench:latest HOST_OUTDIR="$bdir" HOST_HF_CACHE="$BASE/hf_cache" \
       ${mnt:+HOST_MODEL_DIR="$mnt"} CONTAINER_NAME="wc2m-$name" GPUS="$BENCH_GPUS" CLEARML_DISABLE=1 \
-      "$REPO/Evaluation/run.sh" --no-resume --model "$model" \
+      "$REPO/Evaluation/metrics_only/run.sh" --no-resume --model "$model" \
         --hf-dataset "$BENCH_DS_E" --hf-config default --hf-split train \
         --n-samples "$NREAL" --batch-size "$NREAL" --n-examples-per-batch "$NREAL" \
         --temperature 0 --max-pixels 2097152 --tensor-parallel-size "$TP" \

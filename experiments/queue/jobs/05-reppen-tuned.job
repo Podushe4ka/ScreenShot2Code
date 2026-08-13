@@ -29,7 +29,7 @@ run_one() {
       HOST_OUTDIR="$ROOT/bench/$name" HOST_HF_CACHE="$BASE/hf_cache" HOST_MODEL_DIR="$model" \
       CONTAINER_NAME="bench-$name" GPUS="\"device=$GPU_IDS\"" SHM_SIZE=32g \
       CLEARML_TAGS="wc2m15k-ab,$name,reppen" \
-    bash "$REPO/Evaluation/run.sh" --model "$model" \
+    bash "$REPO/Evaluation/metrics_only/run.sh" --model "$model" \
       --hf-dataset SALT-NLP/Design2Code-hf --hf-config default --hf-split train \
       --n-samples 484 --batch-size 484 --max-pixels 2097152 \
       --tensor-parallel-size 1 --gpu-memory-utilization 0.50 \

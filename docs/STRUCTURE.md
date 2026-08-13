@@ -35,6 +35,15 @@ ScreenShot2Code/
 
 ### `Evaluation/` — бенч
 
+⚠ С 8 августа каталог разделён на **четыре независимых инструмента**, у каждого
+свой Dockerfile, свой `run.sh` и свой образ: `metrics_only/` (основной бенч),
+`judge_one_gpu/` (метрики + VLM-судья), `judge_prompt/` (калибровка промпта судьи),
+`streamlit/` (веб-просмотр). Карта — [`../Evaluation/README.md`](../Evaluation/README.md).
+Копии `render.py`/`metrics.py` в них **разошлись**: четыре фикса харнесса есть
+только в `metrics_only/` — см. [`experiments/DIVERGENCES.md`](experiments/DIVERGENCES.md), раздел 4а.
+
+Таблица ниже — про `metrics_only/`, которым сняты все числа в `RESULTS.md`.
+
 | путь | что |
 |---|---|
 | `run.sh` | поднимает контейнер бенча; `--outdir` фиксирован на `/app/output` |
@@ -48,7 +57,7 @@ ScreenShot2Code/
 ### `experiments/` — оркестраторы
 
 Запускаются **на хосте**, не внутри контейнера: они сами поднимают контейнеры
-через `SFT/run.sh` и `Evaluation/run.sh`. Все пути ведут на `/mnt/storage-1`.
+через `SFT/run.sh` и `Evaluation/metrics_only/run.sh`. Все пути ведут на `/mnt/storage-1`.
 
 | скрипт | что делает |
 |---|---|

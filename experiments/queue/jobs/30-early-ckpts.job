@@ -40,7 +40,7 @@ for s in 5 20 40; do
       HOST_OUTDIR="$ROOT/bench/early-step$s" HOST_HF_CACHE="$BASE/hf_cache" HOST_MODEL_DIR="$C" \
       CONTAINER_NAME="bench-early-step$s" GPUS="\"device=${GPU_IDS%%,*}\"" SHM_SIZE=32g \
       CLEARML_TAGS="wc2m15k-ab,early-step$s" \
-    bash "$REPO/Evaluation/run.sh" --model "$C" \
+    bash "$REPO/Evaluation/metrics_only/run.sh" --model "$C" \
       --hf-dataset SALT-NLP/Design2Code-hf --hf-config default --hf-split train \
       --n-samples 484 --batch-size 484 --max-pixels 2097152 \
       --tensor-parallel-size 1 --gpu-memory-utilization 0.50 \

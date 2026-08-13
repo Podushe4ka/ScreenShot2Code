@@ -16,7 +16,7 @@
 | # | что расходится | где A | где B | почему важно | что предлагаю |
 |---|---|---|---|---|---|
 | B1 | легенда сетапов **S0–S10** | `experiments/run_pilot.sh:110-121` (ветки S, E) шлёт ID в теги ClearML | определение только в `Data/analysis/experiments_plan.md` (ветки C, B) | без легенды теги прогонов в ClearML нечитаемы, а пилот E1–E6 не расшифровать | **перенесено** в [`../RESULTS.md`](../RESULTS.md#легенда-s-сетапов-и-h-гипотез) 12 авг |
-| B2 | легенда гипотез **H1–H5** | 4 ссылки «H1» в коде веток S, E: `Evaluation/run_benchmark_batched.py:163,191`, `experiments/run_pilot.sh:197`, `experiments/bench_all.sh:19` | определение только в `experiments_plan.md` (ветки C, B) | комментарии в живом коде ссылаются на несуществующий на этой ветке документ | **перенесено** в `RESULTS.md`, там же |
+| B2 | легенда гипотез **H1–H5** | 4 ссылки «H1» в коде веток S, E: `Evaluation/metrics_only/run_benchmark_batched.py:163,191`, `experiments/run_pilot.sh:197`, `experiments/bench_all.sh:19` | определение только в `experiments_plan.md` (ветки C, B) | комментарии в живом коде ссылаются на несуществующий на этой ветке документ | **перенесено** в `RESULTS.md`, там же |
 | B3 | `SFT/uv.lock` — разный CUDA-стек | S, E: `nvidia_cublas_cu12 12.6.4.1`, `cudnn 9.5.1.17` | C, B: `12.4.5.8`, `cudnn 9.1.0.70` | прогоны с разных линий сняты в разных окружениях и строго говоря не сравнимы | зафиксировать; линия B отстала на 67 коммитов и, вероятно, идёт под снос |
 | B4 | раскладка `Data/` | S, E: `converters/{websight,webcode2m,synth}`, `eda/{tools,notebooks}` | C, B, M: `drafting/`, `webcode2m/`, `analysis/` | один и тот же код лежит по разным путям; документация ветки M описывает старую раскладку | новая раскладка на линии A — целевая (коммит `b353227`) |
 | B5 | `.DS_Store` под git | S, E: удалён | C, B, M, `origin/main`: присутствует | мусор в репозитории | убрать при следующем касании линии B |
@@ -40,10 +40,10 @@
 
 | # | что расходится | где A | где B | почему важно | что предлагаю |
 |---|---|---|---|---|---|
-| K1 | **`MAX_PIXELS` — два разных значения** | обучение и бенч: `2_097_152` (2.10 Мп) — `SFT/train/formatting.py:81`, `Evaluation/run_benchmark_batched.py:161` | конвертеры и EDA: `1280*32*32 = 1_310_720` (1.31 Мп) — `Data/converters/websight/convert_lib.py:53`, `Data/eda/tools/pixel_budget.py:25` | конвертер оценивает визуальный бюджет по **старому**, доTier-A потолку, то есть отбраковывает страницы не по тому порогу, по которому их потом увидит обучение | **не менять молча**: правка изменит состав датасета и, значит, результаты. Решает владелец |
+| K1 | **`MAX_PIXELS` — два разных значения** | обучение и бенч: `2_097_152` (2.10 Мп) — `SFT/train/formatting.py:81`, `Evaluation/metrics_only/run_benchmark_batched.py:161` | конвертеры и EDA: `1280*32*32 = 1_310_720` (1.31 Мп) — `Data/converters/websight/convert_lib.py:53`, `Data/eda/tools/pixel_budget.py:25` | конвертер оценивает визуальный бюджет по **старому**, доTier-A потолку, то есть отбраковывает страницы не по тому порогу, по которому их потом увидит обучение | **не менять молча**: правка изменит состав датасета и, значит, результаты. Решает владелец |
 | K2 | `MAX_PIXELS` продублирован как литерал | единственный источник правды — `SFT_MAX_PIXELS` (env) в `formatting.py:81` | `2097152` вбит ещё в 10 местах: `experiments/{bench_all.sh:47, sanity_d2c.sh:71, sanity_fit.sh:77, sanity_sweep.sh:61, sweep_greedy.sh:45, sweep_soft.sh:67, sweep_wc2m.sh:84}`, `Evaluation/{compare.py:270, run_benchmark.py:68, run_benchmark_batched.py:161}` | смена бюджета требует правки 11 файлов; расхождение обучения и бенча = чекпоинт мерится вне своего распределения, о чём прямо предупреждает сам `formatting.py:78` | свести к одному источнику. Часть файлов — в `Evaluation/` и `experiments/`, правка обратно совместима (значение то же) |
 | K3 | **`--shuffle-buffer-size` ничего не делает** | CLI объявлен в `run_benchmark_batched.py:124`, help обещает `ds.shuffle(buffer_size=…)` | `iter_dataset_batches` (стр. 369–421) принимает `seed` и `shuffle_buffer_size` и **не использует ни одного**; `ds.shuffle()` не вызывается нигде | бенч берёт **первые N** сэмплов сплита, а не случайную выборку. Все числа проекта сняты на детерминированном префиксе Design2Code | **не чинить**: включение шаффла сменит выборку и обесценит сравнимость со всеми прошлыми прогонами. Либо убрать мёртвый флаг, либо задокументировать как «выборка = префикс» |
-| K4 | режим декодирования не логируется в ClearML | `summary.json` содержит ключ `decoding` (temperature, top_p, repetition_penalty, max_new_tokens) | `Evaluation/tracking.py` кладёт в `bench_args` только `model`, `n_samples`, `hf_dataset`, `max_new_tokens`, `max_pixels`, `seed` | в ClearML прогоны со штрафом и без различимы **только по тегам**; при восстановлении E12 режим пришлось определять по тегам и заданиям очереди | добавить `temperature`/`repetition_penalty` в `bench_args` — правка обратно совместима |
+| K4 | режим декодирования не логируется в ClearML | `summary.json` содержит ключ `decoding` (temperature, top_p, repetition_penalty, max_new_tokens) | `Evaluation/metrics_only/tracking.py` кладёт в `bench_args` только `model`, `n_samples`, `hf_dataset`, `max_new_tokens`, `max_pixels`, `seed` | в ClearML прогоны со штрафом и без различимы **только по тегам**; при восстановлении E12 режим пришлось определять по тегам и заданиям очереди | добавить `temperature`/`repetition_penalty` в `bench_args` — правка обратно совместима |
 | K5 | версии `datasets` в двух окружениях | `SFT/pyproject.toml`: `datasets>=4.7,<5` | `requirements-local.txt`: `datasets==5.0.0` | локально датасет собирается 5.x, в обучении читается 4.x; формат `save_to_disk`/`load_from_disk` между мажорами менялся | проверить, что собранный локально набор читается в контейнере; зафиксировать общий мажор |
 
 ---
@@ -55,11 +55,31 @@
 | C1 | `experiments/README.md` описывает 7 скриптов | в таблице: `run_pilot`, `run_night`, `bench_all`, `sanity_d2c`, `sanity_fit`, `sanity_sweep`, `sweep_greedy`, `sweep_soft` | в каталоге ещё: `run_wc2m_15k.sh`, `run_wc2m_ab.sh`, `bench_ui2code.sh`, `sweep_wc2m.sh`, `hold_gpus.py`, `bench_queue.sh`, `bench_clean_when_ready.sh`, `queue/runner.sh` | ревьюер не поймёт, что запускать; половина оркестраторов не описана | дополнить таблицу |
 | C2 | `docs/STRUCTURE.md` — та же дыра | раздел `experiments/`: 9 строк | фактически 14 файлов + каталог `queue/` | то же | дополнить |
 | C3 | `Data/README.md` не знает про синтетику | «Структура папки»: `converters/{websight,webcode2m}`, `eda/`, `papers/` | в дереве есть `converters/synth/` (8 файлов) и `generators/synth/` (9 файлов) | самая свежая работа трека не описана в README своего же трека | дополнить |
-| C4 | `Evaluation/run.sh` — шапка врёт про дефолт | шапка, стр. 35: «`CONTAINER_NAME` — имя контейнера (по умолчанию `design2code-bench`)» | код, стр. 50: `design2code-bench-$(id -un)` | именно этот дефолт защищает от сноса чужого прогона на общей машине | поправить шапку |
-| C5 | `Evaluation/run.sh` — `SHM_SIZE` не задокументирован | список переменных в шапке (стр. 23–35) его не содержит | используется на стр. 149; очереди задают `SHM=32g` | переменная, от которой зависит, упадёт ли Chromium | добавить в шапку |
+| C4 | `Evaluation/metrics_only/run.sh` — шапка врёт про дефолт | шапка, стр. 35: «`CONTAINER_NAME` — имя контейнера (по умолчанию `design2code-bench`)» | код, стр. 50: `design2code-bench-$(id -un)` | именно этот дефолт защищает от сноса чужого прогона на общей машине | поправить шапку |
+| C5 | `Evaluation/metrics_only/run.sh` — `SHM_SIZE` не задокументирован | список переменных в шапке (стр. 23–35) его не содержит | используется на стр. 149; очереди задают `SHM=32g` | переменная, от которой зависит, упадёт ли Chromium | добавить в шапку |
 | C6 | протухшая ссылка на строку | `Data/converters/synth/build.py:53` → «`SFT/train/formatting.py:51`» | `MAX_PIXELS` там на строке **81** | ссылка уводит не туда | поправить |
 | C7 | `docs/RESULTS.md` был датирован 6 августа | «Актуально на 6 августа 2026» | последние прогоны — по 10 августа | читатель решит, что журнал полон | **исправлено** 12 авг: дата обновлена, добавлен раздел 4.4 |
 | C8 | `SFT/pyproject.toml` — описание-заглушка | `description = "Add your description here"` | — | осталось от `uv init` | косметика; каталог `SFT/` по решению владельца не трогаем |
+
+---
+
+## 4а. Расхождения между копиями харнесса (после слияния с `origin/main`)
+
+`origin/main` разделил `Evaluation/` на четыре независимых инструмента, и каждый
+несёт **свою копию** рендера и метрик. Копии уже разошлись.
+
+| файл | `metrics_only/` | `judge_one_gpu/` | `streamlit/` |
+|---|---:|---:|---:|
+| `render.py` | **502 стр.** | 350 стр. | 363 стр. |
+| `metrics.py` | `feba9ac3` | `70d60ffb` | — |
+| `clip_server.py` | `8dfa5b5b` | `2f9bb73a` | — |
+
+| # | что расходится | где A | где B | почему важно | что предлагаю |
+|---|---|---|---|---|---|
+| E1 | **четыре фикса харнесса есть только в `metrics_only/`** | `metrics_only/render.py`: `html5lib`, `materialize_dom`, `_VENDOR_MAP` — всё на месте | `judge_one_gpu/render.py`: **ни одного**; `streamlit/render.py`: тоже нет | Это ровно те дефекты, что полтора дня держали UI2Code^N на 0.000 вместо 0.874 (см. [UI2Code^N](2026-08-06-ui2code-teacher.md)). Любая страница, которую рисует JS, у судьи структурно занулится по построению | перенести фиксы в `judge_one_gpu/` перед следующим прогоном судьи либо свести рендер в общий модуль |
+| E2 | прогон судьи снят **старым** рендером | `judge_one_gpu/bench_results/summary.json`: `final_score 0.8955`, `judge_winrate` чекпоинт 0.456 / база 0.544, 2000 сэмплов | наши таблицы — `metrics_only`, Design2Code-484 | Числа судьи с `RESULTS.md` **не сравнивать**: другой набор И другой прибор | занести в журнал отдельной строкой с обеими оговорками |
+| E3 | `tracking.py` (ClearML) есть только у `metrics_only/` | `metrics_only/tracking.py` | у `judge_one_gpu/` и `streamlit/` трекинга нет | прогоны судьи не попадают в ClearML и живут только файлами на диске — ровно так уже потерялся A/B на 15k | добавить трекинг судье |
+| E4 | под git попал мусор со стороны `origin/main` | наша ветка: `.DS_Store`, `__pycache__`, `bench_results/` вычищены | `origin/main`: `judge_prompt/__old/__pycache__/sample_order.cpython-311.pyc`, `judge_*/bench_results/` с PNG-дампами | при слиянии приезжает обратно | **решает владелец**: чужие каталоги не чистил |
 
 ---
 

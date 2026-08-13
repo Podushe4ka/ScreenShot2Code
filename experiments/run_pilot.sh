@@ -4,7 +4,7 @@
 # Design2Code. Всё в ClearML, задачи обучения и бенча связаны.
 #
 # Запускается НА ХОСТЕ, НЕ внутри контейнера: сам поднимает контейнеры через
-# SFT/run.sh и Evaluation/run.sh. Изнутри контейнера работать не будет —
+# SFT/run.sh и Evaluation/metrics_only/run.sh. Изнутри контейнера работать не будет —
 # docker в нём недоступен.
 #
 #   ./run_pilot.sh                 # волна 1: LoRA vs full-FT, 4 рана, ~4.8 ч
@@ -206,7 +206,7 @@ for row in "${EXPERIMENTS[@]}"; do
     HOST_MODEL_DIR="$MODEL_HOST" \
     CONTAINER_NAME="bench-$EID" GPUS="$GPUS" \
     CLEARML_TAGS="$EID,$SID,pilot1k" \
-    "$REPO/Evaluation/run.sh" \
+    "$REPO/Evaluation/metrics_only/run.sh" \
       --model "$MODEL_HOST" \
       --hf-dataset "$BENCH_DATASET" --hf-config default --hf-split train \
       --n-samples "$BENCH_N" --batch-size "$BENCH_N" \

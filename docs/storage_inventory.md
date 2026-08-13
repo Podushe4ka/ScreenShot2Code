@@ -300,9 +300,10 @@ pred на нулевых сэмплах — 49–50 байт (заглушка),
    (`"$OUT"/*/config.json`) — при копировании в свип это потеряли.
 2. **Обходная копия скрипта.** Патченный `checkpoints_exps/temp/script.sh`
    запускался из своего каталога, а скрипт делает `cd "$(dirname "$0")"; REPO="$PWD"`
-   → `$REPO/Evaluation/run.sh` не существовал. (Каталог удалён.)
+   → `$REPO/Evaluation/run.sh` не существовал. (Каталог удалён. Путь приведён
+   такой, каким он был в августе; сейчас бенч живёт в `Evaluation/metrics_only/`.)
 3. **Путь к датасету.** `--hf-dataset /storage/...` — это конвенция образа `sft`.
-   Бенчевый `Evaluation/run.sh` монтирует диск как `/mnt/storage-1:ro`, а HF-кэш
+   Бенчевый `Evaluation/metrics_only/run.sh` монтирует диск как `/mnt/storage-1:ro`, а HF-кэш
    как `/root/.cache/huggingface`. Внутри бенча пути `/storage` нет.
 4. **Устаревший образ на a100-2.** `design2code-bench:latest` там собран до слияния
    нового Evaluation — в нём нет поддержки локального датасета (`load_from_disk`).

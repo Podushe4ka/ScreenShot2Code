@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO / "Evaluation"))
+sys.path.insert(0, str(REPO / "Evaluation" / "metrics_only"))
 sys.path.insert(0, str(REPO / "Data" / "converters" / "websight"))
 
 import numpy as np  # noqa: E402

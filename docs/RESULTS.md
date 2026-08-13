@@ -60,7 +60,7 @@
 
 Обозначения из плана экспериментов конца июля. Их **используют скрипты и код**:
 `experiments/run_pilot.sh` шлёт ID сетапа в теги ClearML (`CLEARML_TAGS="$EID,$SID,…"`),
-а «H1» стоит в комментариях `Evaluation/run_benchmark_batched.py:163,191`,
+а «H1» стоит в комментариях `Evaluation/metrics_only/run_benchmark_batched.py:163,191`,
 `experiments/run_pilot.sh:197`, `experiments/bench_all.sh:19`. Без расшифровки
 теги прогонов и эти комментарии нечитаемы, поэтому легенда живёт здесь.
 
@@ -143,13 +143,13 @@ Greedy-замера E8 не существует: в `summary.json` обоих �
 
 ### Метрики
 
-Официальные метрики Design2Code (`Evaluation/metrics.py`, код скопирован из
+Официальные метрики Design2Code (`Evaluation/metrics_only/metrics.py`, код скопирован из
 репозитория авторов): `block_match` (структура DOM), `text` (совпадение текста),
 `position` (расположение блоков), `color` (цвета), `clip` (глобальное визуальное
 сходство через CLIP ViT-B/32).
 
 **Сознательное отличие от оригинала:** `final_score` — **геометрическое** среднее
-пяти метрик, а не арифметическое ([`metrics.py:11-13`](../Evaluation/metrics.py)).
+пяти метрик, а не арифметическое ([`metrics.py:11-13`](../Evaluation/metrics_only/metrics.py)).
 Арифметическое сохранено рядом как `final_score_arithmetic`.
 
 Разница принципиальна, и это видно в данных: у сломанных моделей `clip` держится
@@ -261,7 +261,7 @@ seed = None         repetition_penalty = 1.0
 **Материализация — это «запечь» страницу:** открыть в настоящем браузере, дать JS
 отработать, забрать получившийся DOM (`document.documentElement.outerHTML`) и
 перезаписать им файл. Дальше в файле тот же контент, но статической разметкой —
-и метрика его видит. Реализация: [`Evaluation/render.py:385`](../Evaluation/render.py),
+и метрика его видит. Реализация: [`Evaluation/metrics_only/render.py:385`](../Evaluation/metrics_only/render.py),
 функция `materialize_dom`.
 
 Почему это выглядело именно так, как выглядело: **рендер в PNG работал всегда** —

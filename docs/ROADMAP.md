@@ -99,7 +99,7 @@ Reverse-construction стоит в [`../Data/PLAN.md`](../Data/PLAN.md) Этап
 результат, полученный самостоятельно и в тех же терминах.
 
 Плюс мы усугубили сами. `final_score` у нас **геометрическое** среднее
-([`metrics.py:11-13`](../Evaluation/metrics.py)), а не арифметическое, как в оригинале.
+([`metrics.py:11-13`](../Evaluation/metrics_only/metrics.py)), а не арифметическое, как в оригинале.
 Это сознательное решение и оно полезно — не даёт живому `clip` вытянуть мёртвую
 структуру, — но у него два следствия, которые надо держать в голове:
 
@@ -189,7 +189,7 @@ P0.1 — блокирующий: до него P1 запускать нельз�
 **P1.1. Reverse-construction SFT-набор.** 2–5k чистых self-contained страниц:
 сильная модель пишет HTML → наш детерминированный рендерер снимает скриншот → пара.
 Единственный эксперимент, который реально проверяет гипотезу проекта. Все компоненты
-уже есть: рендерер ([`Evaluation/render.py`](../Evaluation/render.py)), контракт
+уже есть: рендерер ([`Evaluation/metrics_only/render.py`](../Evaluation/metrics_only/render.py)), контракт
 ([`SFT/DATA_FORMAT_CONTRACT.md`](../SFT/DATA_FORMAT_CONTRACT.md)), конвертер
 ([`Data/converters/`](../Data/converters/)).
 

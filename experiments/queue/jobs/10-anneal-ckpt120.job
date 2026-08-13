@@ -41,7 +41,7 @@ env IMAGE_TAG=design2code-bench:kozlov \
     HOST_OUTDIR="$ROOT/bench/anneal120" HOST_HF_CACHE="$BASE/hf_cache" HOST_MODEL_DIR="$W" \
     CONTAINER_NAME="bench-anneal120" GPUS="\"device=${GPU_IDS%%,*}\"" SHM_SIZE=32g \
     CLEARML_TAGS="wc2m15k-ab,anneal120" \
-  bash "$REPO/Evaluation/run.sh" --model "$W" \
+  bash "$REPO/Evaluation/metrics_only/run.sh" --model "$W" \
     --hf-dataset SALT-NLP/Design2Code-hf --hf-config default --hf-split train \
     --n-samples 484 --batch-size 484 --max-pixels 2097152 \
     --tensor-parallel-size 1 --gpu-memory-utilization 0.50 \

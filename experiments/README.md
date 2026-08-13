@@ -1,7 +1,7 @@
 # Оркестраторы прогонов
 
 Скрипты запускаются **на хосте**, а не внутри контейнера: они сами поднимают
-контейнеры через `SFT/run.sh` и `Evaluation/run.sh`. Изнутри контейнера docker
+контейнеры через `SFT/run.sh` и `Evaluation/metrics_only/run.sh`. Изнутри контейнера docker
 недоступен, работать не будут.
 
 Все пишут в `/mnt/storage-1/Screenshot2Code`. Запускать под `setsid nohup` или
@@ -113,7 +113,7 @@ source "$REPO/experiments/lib/common.sh"
   ничего не сделав.
 - **Скрипт обязан лежать в `experiments/` внутри репозитория.** Все они делают
   `cd "$(dirname "$0")/.."; REPO="$PWD"`. Копия, запущенная из произвольного
-  каталога, не найдёт ни `Evaluation/run.sh`, ни `lib/common.sh`.
+  каталога, не найдёт ни `Evaluation/metrics_only/run.sh`, ни `lib/common.sh`.
   ⚠ Шесть скриптов до 12 августа делали `cd` **без** `/..` — их перенесли в
   `experiments/` чистым переименованием и строку не поправили. `$REPO` указывал
   на `experiments/`, и `"$REPO/SFT/run.sh"` не существовал: обучение не

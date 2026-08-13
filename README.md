@@ -24,7 +24,7 @@
 
 ```
 SFT/          обучение (torchrun + TRL + DeepSpeed), образ `sft`
-Evaluation/   бенч Design2Code (vLLM + playwright + CLIP), образ `design2code-bench`
+Evaluation/   четыре инструмента eval-трека; основной бенч — `metrics_only/`
 Data/         сборка датасетов и анализ
 experiments/  оркестраторы прогонов (.sh), запускаются на хосте
 docs/         документация

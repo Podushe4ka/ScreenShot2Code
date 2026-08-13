@@ -105,7 +105,7 @@ backward; для screenshot->HTML качество страдает мало. Н
 2. `SFT/scripts/merge_lora.py` — слить адаптер в полные веса, потому что бенч
    грузит модель через vLLM **без поддержки LoRA**; результат надо руками
    положить в HF-кэш;
-3. `Evaluation/run.sh` -> `run_benchmark_batched.py --model <путь>` — отдельный
+3. `Evaluation/metrics_only/run.sh` -> `run_benchmark_batched.py --model <путь>` — отдельный
    контейнер, отдельный образ.
 
 Единственный «мост» — соглашение о примонтированном HF-кэше. Ничто не мешает
@@ -122,5 +122,5 @@ backward; для screenshot->HTML качество страдает мало. Н
 интеграционными ветками вроде `d43dd1a "Integration (НЕ для main)"`.
 
 Ближе всего к сквозной связке — ветка `feat/clearml-tracking`: она добавляет
-`SFT/train/tracking.py` и `Evaluation/tracking.py`, то есть общий трекинг
+`SFT/train/tracking.py` и `Evaluation/metrics_only/tracking.py`, то есть общий трекинг
 обучения и бенча. Её стоит рассматривать вместе с переносом `Evaluation/`.

@@ -60,7 +60,7 @@ for CKPT in $(ckpts); do
     say "ep$EP: greedy-бенч чекпоинта $STEP шагов..."
     env IMAGE_TAG=design2code-bench:latest HOST_OUTDIR="$BDIR" HOST_HF_CACHE="$BASE/hf_cache" \
         HOST_MODEL_DIR="$CKPT" CONTAINER_NAME="soft-ep$EP" GPUS="$BENCH_GPUS" CLEARML_DISABLE=1 \
-        "$REPO/Evaluation/run.sh" --no-resume --model "$CKPT" \
+        "$REPO/Evaluation/metrics_only/run.sh" --no-resume --model "$CKPT" \
           --hf-dataset "$BENCH_DS_E" --hf-config default --hf-split train \
           --n-samples "$NREAL" --batch-size "$NREAL" --n-examples-per-batch "$NREAL" \
           --temperature 0 --max-pixels 2097152 --tensor-parallel-size "$TP" \

@@ -58,7 +58,7 @@ MIN_PIXELS = 256 * 32 * 32             # 262144 — совпадает с SFT/tr
 MAX_PIXELS = 1280 * 32 * 32
 TOKENIZER_ID_DEFAULT = "Qwen/Qwen3-VL-8B-Instruct"
 
-# Серые плейсхолдеры обязаны посимвольно совпадать с Evaluation/render.py — бенч
+# Серые плейсхолдеры обязаны посимвольно совпадать с Evaluation/metrics_only/render.py — бенч
 # подменяет <img> и в предсказании, и в эталоне, и расхождение конвенции сделало бы
 # обучающие таргеты непохожими на то, что метрика видит на бенче.
 PLACEHOLDER_CLASSES = ["bg-gray-300", "w-full", "h-48", "rounded"]

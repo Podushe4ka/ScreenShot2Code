@@ -67,7 +67,7 @@ bench() {  # $1=имя $2=модель $3=монтировать?
   env IMAGE_TAG=design2code-bench:latest \
       HOST_OUTDIR="$OUT/${name}-bench" HOST_HF_CACHE="$BASE/hf_cache" \
       ${mnt:+HOST_MODEL_DIR="$mnt"} CONTAINER_NAME="bench-sanity-$name" GPUS="$GPUS" \
-      "$REPO/Evaluation/run.sh" --model "$model" \
+      "$REPO/Evaluation/metrics_only/run.sh" --model "$model" \
         --hf-dataset SALT-NLP/Design2Code-hf --hf-config default --hf-split train \
         --n-samples "$N" --batch-size "$N" --seed 0 --shuffle-buffer-size 10000 \
         --max-pixels 2097152 --tensor-parallel-size "$NPROC" \

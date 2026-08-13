@@ -73,7 +73,7 @@ bench(){ local name="$1" model="$2"
   env IMAGE_TAG=design2code-bench:latest HOST_OUTDIR="$OUT/${name}-bench" \
       HOST_HF_CACHE="$BASE/hf_cache" ${mnt:+HOST_MODEL_DIR="$mnt"} \
       CONTAINER_NAME="sfit-$name" GPUS="$GPUS" CLEARML_DISABLE=1 \
-      "$REPO/Evaluation/run.sh" --model "$model" \
+      "$REPO/Evaluation/metrics_only/run.sh" --model "$model" \
         --hf-dataset /root/.cache/huggingface/d2c_short_bench --hf-config default --hf-split train \
         --n-samples "$NREAL" --batch-size "$NREAL" --n-examples-per-batch 6 \
         --max-pixels 2097152 --tensor-parallel-size "$NPROC" \
