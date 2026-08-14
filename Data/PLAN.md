@@ -11,7 +11,9 @@
 |---|---|
 | [`PLAN.md`](PLAN.md) | Этот файл — план работ и дорожная карта |
 | [`list_data.md`](list_data.md) | Каталог датасетов: train-кандидаты, бенчмарки, смежное |
-| [`converters/`](converters/) | источник → формат контракта: [`websight/`](converters/websight/), [`webcode2m/`](converters/webcode2m/), [`synth/`](converters/synth/) + общий [`make_split.py`](converters/make_split.py) |
+| [`converters/`](converters/) | источник → формат контракта: [`websight/`](converters/websight/), [`webcode2m/`](converters/webcode2m/), [`webui/`](converters/webui/), [`synth/`](converters/synth/) + общий [`make_split.py`](converters/make_split.py) |
+| [`converters/complexity/`](converters/complexity/) | скоринг сложности по отрендеренной странице + отбор по перцентилям (общий для WebUI и WebCode2M) |
+| [`converters/mix/`](converters/mix/) | солянка из нескольких источников с колонкой `source` под абляцию |
 | [`generators/synth/`](generators/synth/) | генерация синтетики: сиды, ТЗ, пачки, [промпты](generators/synth/prompts/README.md) |
 | [`eda/`](eda/) | Этап 0 — разведка корпусов (обзоры + [`notebooks/`](eda/notebooks/) + [`tools/`](eda/tools/)) |
 | [`papers/`](papers/) | PDF статей ко всем датасетам и методу ([индекс](papers/README.md)) |
@@ -50,6 +52,11 @@ self-contained, ~5k за пару минут) · 🔄 Этап 3 (конвейе
 Qwen (`eda/tools/token_len.py`). Рабочий `max_length` кода по **сырым** источникам:
 WebSight v0.2 ~896 (p99=851), **WebCode2M ~9 920** (p99), **WebUI 8 000 @ cap 8k**
 (теряем ~24% — тяжёлый хвост из инлайнового CSS дизайн-систем, не base64).
+⚠ **Хвост WebUI закрыт tree-shaking'ом (14 авг):** стайлшит сайта из колонки `css` ужимается
+до применённых правил, 468 КБ → 3.7 КБ на странице дизайн-системы. Конвертер и замеры —
+[`converters/webui/`](converters/webui/), отчёт —
+[`../docs/experiments/2026-08-14-webui-inline-and-complexity.md`](../docs/experiments/2026-08-14-webui-inline-and-complexity.md).
+Строка «WebUI для MVP не берём» ниже относится к сырому источнику и после этого неактуальна.
 ⚠ **Сырое ≠ доставляемое для WebSight:** боевой drafting-таргет конвертера проходит
 `precompile_tailwind` (компилированный Tailwind вшивается в `<style>`, ~82% таргета),
 поэтому реальная длина кода в **~4× больше** сырой. Измерено на пилоте (4997 сэмплов):
