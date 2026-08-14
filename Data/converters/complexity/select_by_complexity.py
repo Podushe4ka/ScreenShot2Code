@@ -73,6 +73,9 @@ def main():
                     help="ветка A/B: весь набор из p85+ (перебивает --mix)")
     ap.add_argument("--density-min", type=float, default=None,
                     help="минимум видимых блоков на токен кода (порог раздутости)")
+    ap.add_argument("--min-ink", type=float, default=None,
+                    help="минимальная доля площади, занятой контентом (не белое и не серый "
+                         "плейсхолдер). Отсекает страницы-пустышки; «интересность» НЕ ловит")
     ap.add_argument("--min-css-decls", type=int, default=None,
                     help="минимум CSS-объявлений у страницы с >=--unstyled-min-nodes узлов; "
                          "ниже -> страница фактически без стилей (стайлшита нет в источнике)")
@@ -114,6 +117,13 @@ def main():
     # Замер на отобранном WebUI: 21.1% страниц с >=20 узлов имели <10 объявлений
     # (у WebCode2M — 0.8%). Барьер здесь, а не в конвертере: переконвертация не нужна,
     # решение «годится ли для обучения» принимается на отборе.
+    # Чернила: страница на 500 узлов может быть на две трети белым полем. Со структурной
+    # сложностью этот признак не связан (у топ-200 по complexity медиана 15.6%, у нижних-200
+    # 15.1%), поэтому он работает как ОТДЕЛЬНЫЙ барьер, а не как часть composite.
+    if args.min_ink is not None:
+        before = len(feats)
+        feats = [f for f in feats if f.get("ink") is None or f["ink"] >= args.min_ink]
+        dropped["ink"] = before - len(feats)
     if args.min_css_decls is not None:
         before = len(feats)
         feats = [f for f in feats

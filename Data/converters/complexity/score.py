@@ -58,6 +58,9 @@ def _one(item):
             feats = f.static_features(html, tokens_code=item.get("tokens_code"))
     except Exception as e:
         return {"id": item["id"], "error": f"{type(e).__name__}: {e}"}
+    # Чернила считаются по УЖЕ снятому скриншоту — второй рендер ради этого не нужен.
+    if item.get("png"):
+        feats.update(f.ink_features(item["png"]))
     feats["id"] = item["id"]
     for k in ("source", "source_name", "component_type", "tokens_code", "tokens_total",
               "png", "html_path", "w", "h"):
