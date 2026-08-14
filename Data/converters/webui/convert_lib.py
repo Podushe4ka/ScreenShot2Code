@@ -89,6 +89,22 @@ def make_soup(html_text):
     return BeautifulSoup(html_text, "html.parser")
 
 
+def style_text(tag):
+    """Содержимое `<style>`. НЕ `get_text()`.
+
+    ⚠ Под html5lib текст внутри `<style>` — это узел `Stylesheet` (подкласс
+    NavigableString), а bs4 считает его НЕ текстом: `get_text()` возвращает пустую строку,
+    хотя `.string` отдаёт все 4221 символа. Под `html.parser` и `lxml` такого нет — то есть
+    поведение молча зависит от того, какой парсер отработал первым.
+
+    Цена ошибки — тихая потеря стилей: извлекли пустоту, тег удалили, страница поехала, и
+    никакого исключения. На самом WebUI это не выстрелило (там CSS вынесен в отдельную
+    колонку, страниц со `<style>` внутри `html` — 0 из 3 001 проверенной), но на любом
+    источнике с инлайновыми стилями выстрелит.
+    """
+    return tag.string or "".join(tag.strings) or ""
+
+
 # ── шаг 2: сборка self-contained страницы ─────────────────────────────────────
 
 _DATA_URI_RE = re.compile(r"data:([\w.+/-]+)?;base64,([A-Za-z0-9+/=]+)", re.I)
@@ -177,7 +193,7 @@ def assemble_page(html_text, css_text):
     # разметочные идут ПОСЛЕ колоночных, как это было бы в документе.
     inline_css = []
     for st in soup.find_all("style"):
-        inline_css.append(st.get_text() or "")
+        inline_css.append(style_text(st))
         st.decompose()
 
     stat = sanitize_html(soup)

@@ -73,6 +73,11 @@ def main():
                     help="ветка A/B: весь набор из p85+ (перебивает --mix)")
     ap.add_argument("--density-min", type=float, default=None,
                     help="минимум видимых блоков на токен кода (порог раздутости)")
+    ap.add_argument("--min-css-decls", type=int, default=None,
+                    help="минимум CSS-объявлений у страницы с >=--unstyled-min-nodes узлов; "
+                         "ниже -> страница фактически без стилей (стайлшита нет в источнике)")
+    ap.add_argument("--unstyled-min-nodes", type=int, default=20,
+                    help="с какого числа узлов страница обязана быть оформленной")
     ap.add_argument("--max-tokens", type=int, default=None,
                     help="потолок токенов кода (бюджет окна SFT)")
     ap.add_argument("--max-total-tokens", type=int, default=None,
@@ -101,6 +106,20 @@ def main():
         before = len(feats)
         feats = [f for f in feats if (f.get("density") or 0) >= args.density_min]
         dropped["density"] = before - len(feats)
+    # Страница «без стилей»: узлов много, а оформления нет. У WebUI это не редкость —
+    # у части источников колонка `css` не содержит стайлшита компонентов, и конвертер
+    # честно отдаёт неоформленную страницу (сам он верен источнику: сырой рендер такой же).
+    # Пара при этом СОГЛАСОВАНА — скриншот снят с того же кода, — но учить на ней
+    # воспроизведению дизайна нечему, а сайт она представляет заведомо неверно.
+    # Замер на отобранном WebUI: 21.1% страниц с >=20 узлов имели <10 объявлений
+    # (у WebCode2M — 0.8%). Барьер здесь, а не в конвертере: переконвертация не нужна,
+    # решение «годится ли для обучения» принимается на отборе.
+    if args.min_css_decls is not None:
+        before = len(feats)
+        feats = [f for f in feats
+                 if (f.get("nodes") or 0) < args.unstyled_min_nodes
+                 or (f.get("css_decls") or 0) >= args.min_css_decls]
+        dropped["unstyled"] = before - len(feats)
     if args.max_tokens is not None:
         before = len(feats)
         feats = [f for f in feats if (f.get("tokens_code") or 0) <= args.max_tokens]

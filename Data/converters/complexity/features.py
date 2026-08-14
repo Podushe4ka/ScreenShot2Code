@@ -63,8 +63,14 @@ def _depth(soup):
 
 
 def _collect_css(soup):
-    """Весь CSS страницы: блоки `<style>` + инлайновые `style=`."""
-    parts = [st.get_text() or "" for st in soup.find_all("style")]
+    """Весь CSS страницы: блоки `<style>` + инлайновые `style=`.
+
+    ⚠ `.string`, а не `get_text()`: под html5lib содержимое `<style>` — узел `Stylesheet`,
+    и bs4 не считает его текстом, поэтому `get_text()` молча отдаёт пустоту. Здесь разбор
+    идёт через `html.parser`, где этого нет, но признак `css_decls` входит в сводную
+    сложность — обнулись он от смены парсера, отбор поехал бы незаметно.
+    """
+    parts = [(st.string or "".join(st.strings) or "") for st in soup.find_all("style")]
     inline = [el.get("style") or "" for el in soup.find_all(style=True)]
     return "\n".join(parts), inline
 

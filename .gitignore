@@ -10,10 +10,11 @@ __pycache__/
 # Сгенерированные датасеты (регенерируются из ноутбуков, в git не версионим)
 *drafting_pilot*/
 
-# Артефакты просмотра датасета (view_arrow.py)
+# Артефакты просмотра датасета (view_arrow.py, mix/export_examples.py)
 images/
 report.html
 verify/
+Data/mix_examples/
 
 # вывод eda/compare_datasets.py
 Data/eda/*.png
@@ -34,3 +35,4 @@ Data/webcode2m_pilot/
 # synth_pilot/ — сиды, сгенерированные страницы, скриншоты, готовый датасет.
 Data/vendor/
 Data/synth_pilot/
+Data/webui_compare/
