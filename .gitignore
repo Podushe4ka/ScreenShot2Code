@@ -10,14 +10,33 @@ __pycache__/
 # Сгенерированные датасеты (регенерируются из ноутбуков, в git не версионим)
 *drafting_pilot*/
 
-# Артефакты просмотра датасета (view_arrow.py)
+# Артефакты просмотра датасета (view_arrow.py, mix/export_examples.py, webui/compare_raw.py).
+# Каталоги целиком, а не только картинки: там ещё сотня target_html и витрина index.html.
 images/
 report.html
 verify/
+Data/mix_examples/
+Data/webui_compare/
 
 # вывод eda/compare_datasets.py
 Data/eda/*.png
 *bench_results*
+
+# Картинки в git не версионим. Скриншоты, контактные листы, витрины примеров и
+# рендеры страниц — это артефакты: они регенерируются из данных одной командой, а в
+# репозитории дают только бинарный шум (одна выгрузка примеров = ~19 МБ).
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+*.ico
+# ...кроме иллюстраций, на которые ССЫЛАЕТСЯ документация: они часть текста,
+# без них Data/eda/datasets_overview.md пустой.
+!Data/eda/examples/*.png
+!Data/eda/examples/*.jpg
+# .svg намеренно НЕ в списке — это чаще исходник (иконки в вёрстке), а не артефакт.
 
 # выхлоп прогонов на серверах (результаты живут на /mnt/storage-1, не в git)
 exps-*/
