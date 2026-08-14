@@ -21,7 +21,10 @@
 | [`converters/`](converters/) | источник → формат контракта. По папке на датасет + общий финальный шаг |
 | [`converters/websight/`](converters/websight/) | WebSight: ядро логики (`convert_lib.py`), батч через Docker (`convert_parallel.py`, `Dockerfile`), просмотр (`view_arrow.py`), передача в SFT (`HANDOFF.md`) |
 | [`converters/webcode2m/`](converters/webcode2m/) | WebCode2M: реальные страницы. Переиспользует ядро WebSight-конвертера, не дублирует его. `convert_raw.py` собирает **сырой** набор — контроль к чистому |
+| [`converters/webui/`](converters/webui/) | WebUI: CSS лежит отдельной колонкой (весь стайлшит сайта, до 470 КБ) — лечится **tree-shaking** через CDP, см. [README](converters/webui/README.md) |
 | [`converters/synth/`](converters/synth/) | синтетика: приёмка и рендер сгенерированных страниц, порча под polishing/editing, сборка датасета |
+| [`converters/complexity/`](converters/complexity/) | скоринг сложности по **отрендеренной** странице + отбор по перцентилям (общий для WebUI и WebCode2M), см. [README](converters/complexity/README.md) |
+| [`converters/mix/`](converters/mix/) | солянка из нескольких источников с колонкой `source` под последующую абляцию |
 | [`converters/make_split.py`](converters/make_split.py) | финальный шаг: разрез на `train`/`validation` для `eval_loss` |
 | [`generators/synth/`](generators/synth/) | генерация синтетики: сиды, ТЗ, пачки, [промпты](generators/synth/prompts/README.md), вендоринг CDN |
 | [`eda/`](eda/) | разведка корпусов: сводка [`datasets_overview.md`](eda/datasets_overview.md), методика метрик [`required_data.md`](eda/required_data.md), особенности [`dataset_notes.md`](eda/dataset_notes.md) |
