@@ -171,6 +171,15 @@ def parse_args():
                               "continuous batching, это верхний предел на клиентской стороне.")
     parser.add_argument("--outdir", default="./design2code_results")
     parser.add_argument("--hf-dataset", default="HuggingFaceM4/WebSight")
+    # Конфиг и сплит раньше были ВШИТЫ как name="v0.2", split="train" — то есть
+    # --hf-dataset формально принимался, но реально работал только WebSight, а
+    # любой другой датасет падал на отсутствующем конфиге "v0.2". Дефолты здесь
+    # повторяют прежнее поведение, чтобы существующие вызовы не поехали.
+    parser.add_argument("--hf-config", default="v0.2",
+                         help="Конфиг датасета (name= у load_dataset). Для "
+                              "SALT-NLP/Design2Code-hf это 'default'.")
+    parser.add_argument("--hf-split", default="train",
+                         help="Сплит датасета.")
     parser.add_argument("--shuffle-buffer-size", type=int, default=10_000,
                          help="buffer_size для ds.shuffle() в streaming-режиме HF datasets.")
     parser.add_argument("--enable-thinking", action="store_true")
@@ -414,15 +423,17 @@ def judge_sample(idx: int, sample_dir_str: str, judge_seed: int,
 # =============================================================================
 
 def iter_dataset_batches(hf_dataset: str, n_samples: int, batch_size: int, seed: int,
-                          shuffle_buffer_size: int, skip: int = 0):
+                          shuffle_buffer_size: int, skip: int = 0,
+                          hf_config: str = "v0.2", hf_split: str = "train"):
     """Генератор: отдаёт список HF-сэмплов (dict с ключами 'text'/'image') по
     batch_size штук за раз, пока не наберётся n_samples суммарно.
 
     skip: сколько сэмплов уже обработано в предыдущих запусках (для resume)."""
     from datasets import load_dataset
 
-    print(f"[run_benchmark] Открываю {hf_dataset} в streaming-режиме (skip={skip})...")
-    ds_stream = load_dataset(hf_dataset,name="v0.2", split="train", streaming=True)
+    print(f"[run_benchmark] Открываю {hf_dataset} (config={hf_config}, split={hf_split}) "
+          f"в streaming-режиме (skip={skip})...")
+    ds_stream = load_dataset(hf_dataset, name=hf_config, split=hf_split, streaming=True)
 
     it = iter(ds_stream)
 
@@ -990,6 +1001,7 @@ def main():
         batch_gen = iter_dataset_batches(
             args.hf_dataset, args.n_samples, args.batch_size, args.seed,
             args.shuffle_buffer_size, skip=dataset_offset,
+            hf_config=args.hf_config, hf_split=args.hf_split,
         )
 
         batch_idx = start_batch_idx
