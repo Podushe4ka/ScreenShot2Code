@@ -9,7 +9,7 @@ import os
 from datasets import load_dataset
 
 # Каталог примеров живёт рядом с обзорами (Data/eda/examples), а не рядом со
-# скриптом: на них ссылаются datasets_overview.md и dataviz_overview.html.
+# скриптом: на них ссылается datasets_overview.md.
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "examples")
 os.makedirs(OUT, exist_ok=True)
 W = 360

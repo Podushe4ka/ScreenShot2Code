@@ -23,9 +23,18 @@ from lxml import html as lxml_html
 from token_len import count_tokens, recommend_max_length
 from transformers import AutoTokenizer
 
+# Пролог доступа к общему ядру — тот же, что в конвертерах (см. converters/common/__init__.py).
+_CONV = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                     "converters")
+if _CONV not in sys.path:
+    sys.path.insert(0, _CONV)
+from common.budget import TOKENIZER_ID_DEFAULT  # noqa: E402
+
 URL = "https://huggingface.co/datasets/MBZUAI/Web2Code/resolve/main/Web2Code.json"
 SAMPLE_SIZE = 5000
-TOKENIZER_ID = "Qwen/Qwen3-VL-8B-Instruct"
+# Токенайзер общий: числа этого прогона стоят в мастер-таблице datasets_overview.md
+# рядом с числами остальных корпусов, и считаться они обязаны одним и тем же.
+TOKENIZER_ID = TOKENIZER_ID_DEFAULT
 PAPER_COUNT = 1_179_626
 
 

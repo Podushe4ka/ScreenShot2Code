@@ -11,13 +11,20 @@
 и провал sanity-overfit (Design2Code не влезал в max_length 16384), и почему
 контекст важен для бенча, но не для обучения на WebCode2M.
 
-Запуск (в контейнере sft, где есть transformers/datasets; matplotlib ставится на лету):
-  docker run --rm -v /mnt/storage-1:/storage -e HF_HOME=/storage/Screenshot2Code/hf_cache \
+Числа этого скрипта занесены в `Data/eda/webcode2m_cleaning.md` («Распределение длины
+таргетов»), n=200. Меняешь выборку или токенайзер — поправь и там.
+
+Запуск локально (нужны transformers + datasets; matplotlib необязателен):
+  python design2code_study.py --webcode2m <путь_к_набору> --n 200 --out lengths.png
+
+Запуск в контейнере sft, где лежат наборы (пути подставь свои — на разных машинах
+диск смонтирован по-разному, см. docs/):
+  docker run --rm -v <ДИСК>:/storage -e HF_HOME=/storage/<...>/hf_cache \
     --entrypoint bash sft -c \
     "/opt/venv/bin/pip install -q matplotlib 2>/dev/null; \
-     /opt/venv/bin/python /storage/.../design2code_study.py \
-       --webcode2m /storage/Screenshot2Code/data/webcode2m_3000_split \
-       --out /storage/Screenshot2Code/checkpoints_exps/design2code_lengths.png"
+     /opt/venv/bin/python /storage/<...>/design2code_study.py \
+       --webcode2m /storage/<...>/webcode2m_3000_split \
+       --out /storage/<...>/design2code_lengths.png"
 """
 import argparse
 import numpy as np
@@ -39,6 +46,8 @@ def summarize(name, lengths, limits=(8192, 16384, 24384, 32768)):
 
 def main():
     ap = argparse.ArgumentParser()
+    # Намеренно НЕ общий TOKENIZER_ID_DEFAULT: числа в eda/webcode2m_cleaning.md сняты
+    # именно этим токенайзером, и смена дефолта сделала бы их невоспроизводимыми.
     ap.add_argument("--tokenizer", default="Qwen/Qwen3.5-9B")
     ap.add_argument("--design2code", default="SALT-NLP/Design2Code-hf")
     ap.add_argument("--webcode2m", default=None, help="локальный путь (load_from_disk) или пропустить")

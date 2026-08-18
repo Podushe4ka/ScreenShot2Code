@@ -44,6 +44,14 @@ Design2Code это бьёт по `block_match`/`position` (структура и
 
 ## Распределение длины таргетов (Qwen-токены, добавлено позже)
 
+Считано `eda/tools/design2code_study.py` на **n=200** страниц из каждого набора
+(токенайзер `Qwen/Qwen3.5-9B`). Воспроизвести:
+
+```bash
+python Data/eda/tools/design2code_study.py \
+    --webcode2m <путь_к_webcode2m_split> --n 200 --out design2code_lengths.png
+```
+
 | датасет | медиана | p90 | p99 | max | >16384 |
 |---|---|---|---|---|---|
 | **Design2Code** | 17545 | 53059 | 74804 | 75090 | **51%** |

@@ -19,6 +19,7 @@
 | Путь | Что внутри |
 |---|---|
 | [`converters/`](converters/) | источник → формат контракта. По папке на датасет + общий финальный шаг |
+| [`converters/common/`](converters/common/) | **общее ядро**: бюджет токенов/пикселей (общий с SFT), рендер, плейсхолдеры, схема контракта. Всё, что раньше дублировалось по конвертерам |
 | [`converters/websight/`](converters/websight/) | WebSight: ядро логики (`convert_lib.py`), батч через Docker (`convert_parallel.py`, `Dockerfile`), просмотр (`view_arrow.py`), передача в SFT (`HANDOFF.md`) |
 | [`converters/webcode2m/`](converters/webcode2m/) | WebCode2M: реальные страницы. Переиспользует ядро WebSight-конвертера, не дублирует его. `convert_raw.py` собирает **сырой** набор — контроль к чистому |
 | [`converters/webui/`](converters/webui/) | WebUI: CSS лежит отдельной колонкой (весь стайлшит сайта, до 470 КБ) — лечится **tree-shaking** через CDP, см. [README](converters/webui/README.md) |
@@ -29,8 +30,9 @@
 | [`generators/synth/`](generators/synth/) | генерация синтетики: сиды, ТЗ, пачки, [промпты](generators/synth/prompts/README.md), вендоринг CDN |
 | [`eda/`](eda/) | разведка корпусов: сводка [`datasets_overview.md`](eda/datasets_overview.md), методика метрик [`required_data.md`](eda/required_data.md), особенности [`dataset_notes.md`](eda/dataset_notes.md) |
 | [`eda/notebooks/`](eda/notebooks/) | ноутбуки по датасетам: `webcode2m`, `websight`, `webui` |
-| [`eda/tools/`](eda/tools/) | счётчики и графики: `token_len.py`, `pixel_budget.py`, `plot_hist.py`, `compare_datasets.py` |
+| [`eda/tools/`](eda/tools/) | счётчики и графики: `token_len.py`, `pixel_budget.py`, `plot_hist.py`, `make_examples.py`, `design2code_study.py`, `webui_clean_eda.py` (распределения по РЕАЛЬНОМУ выходу конвертера WebUI, не по сырому источнику) |
 | [`papers/`](papers/) | PDF статей ко всем датасетам и методу ([индекс](papers/README.md)) |
+| [`tests/`](tests/) | pytest без сети и браузера: бюджет, плейсхолдеры, чистка HTML, CSS, признаки, барьеры отбора, разрезы, `--help` всех CLI |
 
 Не в git (регенерируются, лежат локально): `images/`, `report.html` — выхлоп
 `view_arrow.py`; `websight_drafting_pilot/` — собранный датасет, передаётся диском;
@@ -91,6 +93,18 @@ docker run --rm -v "$PWD":/work --shm-size=2g ws-conv --target 5000 --n-workers 
 
 Подробности — [`converters/websight/README.md`](converters/websight/README.md),
 передача в SFT — [`converters/websight/HANDOFF.md`](converters/websight/HANDOFF.md).
+
+## Тесты
+
+```bash
+.venv/bin/python -m pytest Data/tests -q
+```
+
+Сети и браузера не требуют, идут ~10 секунд. Что держат: пиксельный бюджет сходится с
+`SFT/train/formatting.py`, конвенция серых плейсхолдеров не поехала, из реальных страниц
+не остаётся внешних ссылок, барьеры отбора не срабатывают вхолостую, разрезы не пускают
+одну страницу в оба сплита, `--help` каждого CLI жив. Новый CLI без теста на `--help`
+роняет `test_script_list_is_complete` — это намеренно.
 
 ## Статус
 

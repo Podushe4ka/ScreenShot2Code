@@ -10,21 +10,31 @@
   страница 1280xH с площадью > MAX_PIXELS ужимается => падает эфф.ширина => мельчает
   текст. Ниже ~8-11px кегля растровый текст перестаёт читаться моделью.
 
-Значения совпадают с SFT/train/formatting.py и Data/converters/websight/convert_lib.py.
+⚠ Константы НЕ свои: берутся из `Data/converters/common/budget.py`, то есть из тех же
+переменных окружения, что читает `SFT/train/formatting.py`. Раньше здесь стоял свой литерал
+`MAX_PIXELS = 1280*32*32` (1.31 Мп), и скрипт, который специально существует ради ответа
+«какой бюджет нам нужен», печатал таблицу для бюджета, отменённого ещё в Tier A.
 
 Использование:
     python pixel_budget.py                 # таблица читаемости + нужные MAX_PIXELS
     python pixel_budget.py <parquet-glob>  # + реальное распределение высот корпуса
+    python pixel_budget.py --max-pixels 3932160   # прикинуть другой потолок
 """
+import argparse
 import glob
 import math
+import os
 import struct
 import sys
 
-MIN_PIXELS = 256 * 32 * 32       # 262_144  (=256 визтокенов * 32*32 px/токен)
-MAX_PIXELS = 1280 * 32 * 32      # 1_310_720 (=1280 визтокенов) — текущий потолок
-RENDER_WIDTH = 1280
-FACTOR = 32                      # patch_size(16) * merge_size(2), Qwen3-VL
+# Пролог доступа к общему ядру — тот же, что в конвертерах (см. converters/common/__init__.py).
+_CONV = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                     "converters")
+if _CONV not in sys.path:
+    sys.path.insert(0, _CONV)
+
+from common.budget import (MAX_PIXELS, MIN_PIXELS, PATCH as FACTOR,  # noqa: E402
+                           RENDER_WIDTH)
 READABLE_COMFORT = 11.0          # эвристика: комфортный кегль после ужатия, px
 READABLE_EDGE = 8.0              # эвристика: край читаемости, px
 
@@ -123,8 +133,18 @@ def corpus_report(parquet_glob, image_col="image", nfiles=4):
         print("  доля читаемых (>=%.0fpx, %s): %.1f%%" % (thr, lab, share))
 
 
-if __name__ == "__main__":
-    readability_table()
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("glob", nargs="?", default=None,
+                    help="маска parquet-шардов корпуса: добавит реальное распределение высот")
+    ap.add_argument("--max-pixels", type=int, default=MAX_PIXELS,
+                    help="прикинуть ДРУГОЙ потолок (по умолчанию — рабочий из common/budget.py)")
+    args = ap.parse_args()
+    readability_table(args.max_pixels)
     needed_maxpixels()
-    if len(sys.argv) > 1:
-        corpus_report(sys.argv[1])
+    if args.glob:
+        corpus_report(args.glob)
+
+
+if __name__ == "__main__":
+    main()
