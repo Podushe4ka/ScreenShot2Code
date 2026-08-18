@@ -27,9 +27,16 @@ import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
 
+# Каталог скрипта — для воркеров пула (им нужен features соседом).
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
+# Пролог доступа к общему ядру — ОДИН И ТОТ ЖЕ во всех точках входа (см. common/__init__.py).
+_CONV = os.path.dirname(_HERE)
+if _CONV not in sys.path:
+    sys.path.insert(0, _CONV)
+
+from common.budget import TOKENIZER_ID_DEFAULT  # noqa: E402  — не литерал: один на трек
 
 _W = {}
 
@@ -66,6 +73,13 @@ def _one(item):
               "png", "html_path", "w", "h"):
         if k in item and k not in feats:
             feats[k] = item[k]
+    # `tokens_total` конвертера ГЛАВНЕЕ посчитанного здесь: у конвертера w/h взяты из
+    # реального PNG (full_page), то есть из того самого кадра, который увидит модель, а
+    # `page_w/page_h` рендер-признаков — размеры документа на вьюпорте 1280x1024. Числа
+    # близкие, но авторитет у кадра. `rendered_features` считает свой вариант как ЗАПАСНОЙ —
+    # для входов, где токенов нет вовсе (--jsonl от scan_complex.py).
+    if item.get("tokens_total"):
+        feats["tokens_total"] = item["tokens_total"]
     return feats
 
 
@@ -136,7 +150,7 @@ def main():
     ap.add_argument("--source", default=None,
                     help="метка источника, которая уедет в колонку `source` солянки")
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--tokenizer", default="Qwen/Qwen3-VL-8B-Instruct",
+    ap.add_argument("--tokenizer", default=TOKENIZER_ID_DEFAULT,
                     help="чем считать tokens_code, если его нет во входе")
     ap.add_argument("--no-tokens", action="store_true",
                     help="не досчитывать токены (тогда density не будет посчитана)")
@@ -198,14 +212,17 @@ def report_distribution(feats):
     for key in ("nodes", "depth", "distinct_tags", "css_decls", "unique_classes",
                 "columns", "blocks_visible", "tokens_code"):
         print(f"    {key:16s} {q(key,.5):9.0f} {q(key,.9):9.0f} {q(key,.99):9.0f}")
-    dens = [f.get("density") for f in feats if f.get("density")]
-    if dens:
-        dens.sort()
-        def dq(p): return dens[min(len(dens) - 1, int(len(dens) * p))]
-        print(f"    {'density':16s} {dq(.5):9.4f} {dq(.9):9.4f} {dq(.99):9.4f}  "
-              f"(видимых блоков на токен кода)")
-    n400 = sum(1 for f in feats if (f.get("nodes") or 0) >= 400)
-    print(f"    страниц >=400 узлов: {n400} ({100*n400/len(feats):.1f}%)")
+    # Две плотности — две шкалы, и печатать их надо раздельно: порог --density-min
+    # откалиброван на видимых блоках и на статические числа не переносится.
+    for key, what in (("density_visible", "видимых блоков на токен кода"),
+                      ("density_static", "узлов на токен кода")):
+        dens = sorted(f[key] for f in feats if f.get(key))
+        if dens:
+            def dq(p, d=dens): return d[min(len(d) - 1, int(len(d) * p))]
+            print(f"    {key:16s} {dq(.5):9.4f} {dq(.9):9.4f} {dq(.99):9.4f}  ({what})")
+    for thr in (300, 400):
+        n = sum(1 for f in feats if (f.get("nodes") or 0) >= thr)
+        print(f"    страниц >={thr} узлов: {n} ({100*n/len(feats):.2f}%)")
 
 
 if __name__ == "__main__":

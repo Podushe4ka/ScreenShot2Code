@@ -28,11 +28,16 @@ import time
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 
+# Каталог скрипта — для воркеров пула (им нужен convert_lib соседом).
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
+# Пролог доступа к общему ядру — ОДИН И ТОТ ЖЕ во всех точках входа (см. common/__init__.py).
+_CONV = os.path.dirname(_HERE)
+if _CONV not in sys.path:
+    sys.path.insert(0, _CONV)
 
-TOKENIZER_ID_DEFAULT = "Qwen/Qwen3-VL-8B-Instruct"
+from common.budget import TOKENIZER_ID_DEFAULT  # noqa: E402  — не литерал: один на трек
 
 _W = {}
 
@@ -111,7 +116,9 @@ def main():
                 print(f"[фаза 2] {i}/{len(items)}  ok={ok} ({100*ok/i:.1f}%)  "
                       f"{rate:.2f} стр/с  ETA {(len(items)-i)/max(1e-9,rate)/60:.0f} мин", flush=True)
 
-    sys.path.insert(0, os.path.join(_HERE, "..", "webui"))
+    # Дедуп и подсчёт токенов заимствуем у WebUI-конвертера: логика там одна и та же,
+    # а второй копии этих трёх функций трек уже наелся. Путь — через тот же _CONV.
+    sys.path.insert(0, os.path.join(_CONV, "webui"))
     from convert_parallel import add_tokens, mark_exact_dups, mark_near_dups
     for rec in records:
         rec["_root"] = args.out

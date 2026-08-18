@@ -8,38 +8,37 @@
   • страницы могут тянуть внешние ресурсы (JS, `<link>` CSS, шрифты) — для детерминированного
     оффлайн-рендера вырезаем `<script>` и внешние `<link rel=stylesheet>` (инлайновый `<style>`
     остаётся), плюс де-блоб data-URI;
-  • всё ОБЩЕЕ (плейсхолдеры, `render_full`, счётчик токенов, схема `FEATURES`) переиспользуется
-    из `Data/converters/websight/convert_lib.py` — один источник правды, не дублируем.
+  • всё ОБЩЕЕ (плейсхолдеры, `render_full`, счётчик токенов, схема `FEATURES`) берётся из
+    `../common/` — один источник правды, не дублируем.
+
+⚠ Раньше общее ядро подгружалось из `../websight/convert_lib.py` через
+`importlib.spec_from_file_location` + `exec_module`. Это работало, но давало модуль, который
+не находится по имени: при `multiprocessing` со `spawn` (macOS) воркеры такой модуль не
+восстанавливают, а пикл функций из него падает. Теперь обычный импорт пакета `common`.
 
 Профили как у drafting: интерактив — `convert.ipynb`, батч — `convert_parallel.py`.
 """
-import importlib.util
 import io
 import os
 import re
+import sys
 
 from bs4 import BeautifulSoup
 
-# Переиспользуем протестированное ядро drafting-конвертера: один источник правды.
-_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "websight", "convert_lib.py")
-_spec = importlib.util.spec_from_file_location("websight_convert_lib", _BASE)
-_base = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_base)
+# Пролог доступа к общему ядру — ОДИН И ТОТ ЖЕ во всех точках входа (см. common/__init__.py).
+_CONV = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _CONV not in sys.path:
+    sys.path.insert(0, _CONV)
 
-replace_images_with_placeholder = _base.replace_images_with_placeholder
-strip_background_images = _base.strip_background_images
-render_full = _base.render_full
-render_threaded = _base.render_threaded
-close_renderer = _base.close_renderer
-ahash = _base.ahash
-hamming = _base.hamming
-qwen_image_tokens = _base.qwen_image_tokens
-count_tokens = _base.count_tokens
-FEATURES = _base.FEATURES
-RENDER_WIDTH = _base.RENDER_WIDTH
-MIN_PIXELS = _base.MIN_PIXELS
-MAX_PIXELS = _base.MAX_PIXELS
-TOKENIZER_ID_DEFAULT = _base.TOKENIZER_ID_DEFAULT
+from common.budget import (MAX_PIXELS, MIN_PIXELS, RENDER_WIDTH,  # noqa: E402
+                           TOKENIZER_ID_DEFAULT, count_tokens, qwen_image_tokens)
+from common.imaging import ahash, hamming  # noqa: E402
+from common.placeholders import (replace_images_with_placeholder,  # noqa: E402
+                                 strip_background_images)
+from common.render import close_threaded, render_full, render_threaded  # noqa: E402
+from common.schema import FEATURES  # noqa: E402
+
+close_renderer = close_threaded   # историческое имя: так браузер закрывает convert.ipynb
 
 DATASET_ID = "xcodemind/webcode2m_purified"   # реальные pruned-страницы, HTML+CSS слиты в `text`
 SPLIT = "train"

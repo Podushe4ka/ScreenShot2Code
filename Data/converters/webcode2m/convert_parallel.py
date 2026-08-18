@@ -12,6 +12,13 @@ WebCode2M -> формат drafting-контракта.
   фаза 3: save_to_disk + приёмка + токен-отчёт.
 
     python convert_parallel.py --target 5000 --n-workers 32
+
+Тестовый набор берётся из ХВОСТА корпуса, чтобы не пересечься с обучающим:
+`--skip` выбрасывает первые N записей стрима до всякой фильтрации, а `--exclude-html`
+дополнительно выкидывает страницы, чей HTML уже лежит в html-кэше обучающего набора.
+
+    python convert_parallel.py --target 500 --skip 200000 --out ./webcode2m_test_500 \
+        --exclude-html ./webcode2m_15k_htmls.jsonl.gz
 """
 import argparse
 import gzip
@@ -47,25 +54,43 @@ def png_size(data):
 
 
 # фаза 1
-def load_html_cache(path, target):
+def _meta_path(path):
+    return path + ".meta.json"
+
+
+def load_html_cache(path, target, skip):
     """Кандидаты из кэша прошлого прогона, если их там хватает.
 
     Фаза 1 стримит шарды источника целиком (для 15k это ~4 ГБ и ~40 минут), а
     нужен из них один HTML — картинку мы всё равно рендерим сами. Падение любой
     следующей фазы без кэша означало бы повторную скачку с нуля.
+
+    Кэш привязан к участку корпуса: рядом лежит `<кэш>.meta.json` со `skip`. Иначе
+    тестовый прогон (`--skip 200000`) молча подобрал бы кэш обучающего набора
+    (`skip=0`) и склеил бы train с test. У кэшей, сделанных до появления `--skip`,
+    сайдкара нет — они с начала корпуса, т.е. skip=0.
     """
     if not path or not os.path.exists(path):
+        return None
+    meta = {}
+    if os.path.exists(_meta_path(path)):
+        with open(_meta_path(path), encoding="utf-8") as f:
+            meta = json.load(f)
+    cached_skip = meta.get("skip", 0)
+    if cached_skip != skip:
+        print(f"[фаза 1] кэш {path} собран со skip={cached_skip}, а нужен skip={skip} — "
+              f"стримлю заново (кэш не перезаписываю: укажи свой --html-cache)")
         return None
     with gzip.open(path, "rt", encoding="utf-8") as f:
         htmls = [json.loads(line)["html"] for line in f]
     if len(htmls) < target:
         print(f"[фаза 1] в кэше {len(htmls)} < target {target} — стримлю заново")
         return None
-    print(f"[фаза 1] кандидаты из кэша {path}: беру {target} из {len(htmls)}")
+    print(f"[фаза 1] кандидаты из кэша {path}: беру {target} из {len(htmls)} (skip={skip})")
     return htmls[:target]
 
 
-def save_html_cache(path, htmls):
+def save_html_cache(path, htmls, skip):
     if not path:
         return
     tmp = path + ".tmp"
@@ -73,20 +98,82 @@ def save_html_cache(path, htmls):
         for h in htmls:
             f.write(json.dumps({"html": h}, ensure_ascii=False) + "\n")
     os.replace(tmp, path)   # атомарно: недописанный кэш не должен выглядеть готовым
-    print(f"[фаза 1] кандидаты сохранены в кэш: {path}")
+    with open(_meta_path(path), "w", encoding="utf-8") as f:
+        json.dump({"dataset": DATASET_ID, "split": SPLIT, "skip": skip, "n": len(htmls)}, f)
+    print(f"[фаза 1] кандидаты сохранены в кэш: {path} (skip={skip})")
 
 
-def collect_candidates(target, max_scan, near_dup):
-    stream = load_dataset(DATASET_ID, split=SPLIT, streaming=True)
+def load_exclude_hashes(paths):
+    """sha1 исходных HTML, которые брать нельзя (страницы обучающего набора).
+
+    Ждём html-кэши фазы 1 (`<out>_htmls.jsonl.gz`): там лежит СЫРОЙ HTML корпуса,
+    поэтому хэши сравнимы с тем, что видит `collect_candidates`. `target_html`
+    готового набора для этого не годится — он уже прошёл sanitize и не совпадёт.
+    """
+    excl = set()
+    for p in paths or []:
+        with gzip.open(p, "rt", encoding="utf-8") as f:
+            n = 0
+            for line in f:
+                html = (json.loads(line)["html"] or "").strip()
+                excl.add(hashlib.sha1(html.encode("utf-8")).hexdigest())
+                n += 1
+        print(f"[фаза 1] исключаю {n} страниц из {p}")
+    return excl
+
+
+def collect_candidates(target, max_scan, near_dup, skip=0, exclude=frozenset()):
+    """Собрать `target` HTML, пропустив первые `skip` записей стрима.
+
+    `skip` считается по СЫРЫМ записям источника, до фильтров, а `max_scan` — уже
+    после пропуска: так «взять 500 штук начиная с 200k» описывается парой чисел,
+    не зависящей от того, сколько записей отсеется.
+    """
+    # Без near-dup картинка источника не нужна вовсе (рендерим свою), а на пропуске
+    # 200k записей это разница между парой сотен МБ текста и десятками ГБ PNG.
+    stream = need_image = None
+    if near_dup is None:
+        try:
+            s = load_dataset(DATASET_ID, split=SPLIT, streaming=True, columns=[HTML_FIELD])
+            # Проба одной записью: `columns=` поддержан только parquet-билдером, и отказ
+            # может прийти как на загрузке, так и лениво на первой итерации. Одна запись
+            # дешёвая, а полный прогон терять на этом нельзя.
+            assert HTML_FIELD in next(iter(s)), f"нет колонки {HTML_FIELD}"
+            stream, need_image = s, False
+            print(f"[фаза 1] читаю только колонку {HTML_FIELD!r} (скриншоты источника не качаются)")
+        except Exception as e:
+            print(f"[фаза 1] колоночная выборка недоступна ({type(e).__name__}: {e}) — читаю всё")
+    if stream is None:
+        stream = load_dataset(DATASET_ID, split=SPLIT, streaming=True)
+        need_image = True
+
+    it = iter(stream)
+    if skip:
+        # Прогресс печатаем строками, а не прогресс-баром: пропуск занимает часы, а
+        # `docker run -d` пишет лог построчно — бар на `\r` в нём попросту не виден.
+        import time
+        t0 = time.time()
+        for i in range(skip):
+            try:
+                next(it)
+            except StopIteration:
+                raise SystemExit(f"в {DATASET_ID}/{SPLIT} меньше {skip} записей — уменьши --skip")
+            if (i + 1) % 10000 == 0:
+                el = time.time() - t0
+                print(f"[фаза 1] пропуск {i + 1}/{skip} ({el / 60:.1f} мин, "
+                      f"{(i + 1) / el:.0f} зап/с, осталось ~{(skip - i - 1) / ((i + 1) / el) / 60:.0f} мин)",
+                      flush=True)
+        print(f"[фаза 1] пропуск {skip} записей завершён за {(time.time() - t0) / 60:.1f} мин", flush=True)
+
     htmls, seen, hashes = [], set(), []
-    scanned = skipped_empty = skipped_dup = skipped_nd = 0
-    for r in stream:
+    scanned = skipped_empty = skipped_dup = skipped_nd = skipped_excl = 0
+    for r in it:
         if len(htmls) >= target or scanned >= max_scan:
             break
         scanned += 1
         html = (r.get(HTML_FIELD) or "").strip()
         img = r.get(IMAGE_FIELD)
-        if not html or img is None:
+        if not html or (need_image and img is None):
             skipped_empty += 1
             continue
         if near_dup is not None:
@@ -99,10 +186,17 @@ def collect_candidates(target, max_scan, near_dup):
         if h in seen:
             skipped_dup += 1
             continue
+        if h in exclude:
+            skipped_excl += 1
+            continue
         seen.add(h)
         htmls.append(html)
-    print(f"[фаза 1] кандидатов: {len(htmls)} (просмотрено {scanned}; "
-          f"пустых={skipped_empty}, дублей={skipped_dup}, near-dup={skipped_nd})")
+    print(f"[фаза 1] кандидатов: {len(htmls)} (пропущено с начала {skip}, просмотрено {scanned}; "
+          f"пустых={skipped_empty}, дублей={skipped_dup}, near-dup={skipped_nd}, "
+          f"из чужого набора={skipped_excl})")
+    if len(htmls) < target:
+        print(f"[фаза 1] ⚠ набралось {len(htmls)} < target {target}: упёрлись в --max-scan "
+              f"({max_scan}) или в конец корпуса — поднимай --max-scan")
     return htmls
 
 
@@ -131,7 +225,16 @@ def token_report(rows, sizes):
 def main():
     ap = argparse.ArgumentParser(description="WebCode2M -> формат контракта (параллельно).")
     ap.add_argument("--target", type=int, default=500)
-    ap.add_argument("--max-scan", type=int, default=50000)
+    ap.add_argument("--max-scan", type=int, default=50000,
+                    help="предел просмотренных записей ПОСЛЕ --skip")
+    ap.add_argument("--skip", type=int, default=0,
+                    help="пропустить первые N записей стрима (до фильтров). Так тестовый "
+                         "набор берётся из хвоста корпуса и не пересекается с обучающим: "
+                         "трейн собран из первых 50k -> для теста --skip 200000")
+    ap.add_argument("--exclude-html", action="append", default=None, metavar="КЭШ.jsonl.gz",
+                    help="html-кэш фазы 1 другого набора: его страницы не берём (сравнение по "
+                         "sha1 сырого HTML). Можно повторять. Страховка от повторов страниц "
+                         "в самом корпусе — сверх позиционного --skip")
     ap.add_argument("--n-workers", type=int, default=os.cpu_count())
     ap.add_argument("--out", default="./webcode2m_pilot")
     ap.add_argument("--near-dup", type=int, default=None)
@@ -143,12 +246,16 @@ def main():
 
     out_dir = os.path.abspath(args.out)
     cache_path = os.path.abspath(args.html_cache or out_dir + "_htmls.jsonl.gz")
-    print(f"источник: {DATASET_ID} | target: {args.target} | воркеров: {args.n_workers} | out: {out_dir}")
+    print(f"источник: {DATASET_ID} | target: {args.target} | skip: {args.skip} | "
+          f"воркеров: {args.n_workers} | out: {out_dir}")
 
-    htmls = load_html_cache(cache_path, args.target)
+    htmls = load_html_cache(cache_path, args.target, args.skip)
     if htmls is None:
-        htmls = collect_candidates(args.target, args.max_scan, args.near_dup)
-        save_html_cache(cache_path, htmls)
+        htmls = collect_candidates(args.target, args.max_scan, args.near_dup, args.skip,
+                                   load_exclude_hashes(args.exclude_html))
+        save_html_cache(cache_path, htmls, args.skip)
+    if not htmls:
+        raise SystemExit("фаза 1 не набрала ни одного кандидата — рендерить нечего")
 
     # preflight: тест рендера в главном процессе (реальная страница WebCode2M — без Tailwind)
     print("[preflight] тест sanitize + render...")

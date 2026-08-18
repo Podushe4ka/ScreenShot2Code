@@ -31,11 +31,9 @@
                         вёрстку, это видно тем же числом, которым меряют модель;
   7. фильтр по токенам под `max_length` — в `convert_parallel.py`.
 
-Общее ядро (схема `FEATURES`, плейсхолдеры, счётчик токенов, near-dup) берём из
-`../websight/convert_lib.py` — один источник правды, второй рендерер/схему не плодим.
+Общее ядро (схема `FEATURES`, плейсхолдеры, счётчик токенов, near-dup, бюджет пикселей)
+берём из `../common/` — один источник правды, второй рендерер/схему не плодим.
 """
-import importlib.util
-import io
 import os
 import re
 import sys
@@ -47,21 +45,18 @@ import cssprune
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.normpath(os.path.join(_HERE, "..", "..", ".."))
 
-# Переиспользуем протестированное ядро drafting-конвертера.
-_BASE = os.path.join(_HERE, "..", "websight", "convert_lib.py")
-_spec = importlib.util.spec_from_file_location("websight_convert_lib", _BASE)
-_base = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_base)
+# Пролог доступа к общему ядру — ОДИН И ТОТ ЖЕ во всех точках входа (см. common/__init__.py).
+_CONV = os.path.dirname(_HERE)
+if _CONV not in sys.path:
+    sys.path.insert(0, _CONV)
 
-FEATURES = _base.FEATURES
-RENDER_WIDTH = _base.RENDER_WIDTH
-MIN_PIXELS, MAX_PIXELS = _base.MIN_PIXELS, _base.MAX_PIXELS
-TOKENIZER_ID_DEFAULT = _base.TOKENIZER_ID_DEFAULT
-PLACEHOLDER_CLASSES = _base.PLACEHOLDER_CLASSES
-PLACEHOLDER_STYLE = _base.PLACEHOLDER_STYLE
-ahash, hamming = _base.ahash, _base.hamming
-count_tokens = _base.count_tokens
-qwen_image_tokens = _base.qwen_image_tokens
+from common.budget import (MAX_PIXELS, MIN_PIXELS, RENDER_WIDTH,  # noqa: E402
+                           TOKENIZER_ID_DEFAULT, count_tokens, qwen_image_tokens)
+from common.imaging import ahash, hamming  # noqa: E402
+from common.placeholders import (PLACEHOLDER_CLASSES, PLACEHOLDER_STYLE,  # noqa: E402
+                                 replace_images_with_placeholder)
+from common.render import browser, close  # noqa: E402
+from common.schema import FEATURES  # noqa: E402
 
 # Рендер и метрика приёмки — из eval-трека, чтобы обучающий скриншот снимался ровно тем же
 # движком и с той же конвенцией, которой потом меряют модель на бенче.
@@ -204,21 +199,21 @@ def assemble_page(html_text, css_text):
     return soup, css_all, stat
 
 
-def replace_images_with_placeholder(soup):
-    """Шаг 4. `<img>` -> серый `<div>` ровно той строкой, что в бенче и в промпте генерации.
-    Работает по soup (а не по тексту), потому что до рендера страница живёт как дерево."""
-    n = 0
-    for img in soup.find_all("img"):
-        div = soup.new_tag("div")
-        div["class"] = list(PLACEHOLDER_CLASSES)
-        div["style"] = PLACEHOLDER_STYLE
-        img.replace_with(div)
-        n += 1
-    return n
+# Шаг 4 (`<img>` -> серый `<div>`) — общий `common.placeholders.replace_images_with_placeholder`:
+# на soup он правит дерево на месте и возвращает число замен, ровно как делала здешняя копия.
+# Работаем по soup, а не по тексту: до рендера страница живёт как дерево.
 
 
 def build_html(soup, css_text):
-    """Собрать финальный документ: стайлшит одним `<style>` в `<head>`."""
+    """Собрать финальный документ: стайлшит одним `<style>` в `<head>`.
+
+    ⚠ `css_text` идёт через `cssprune.guard_style_close` ПЕРЕД тем, как попасть внутрь
+    `<style>` — без этого буквальная подстрока `</style` в CSS (реальный риск: css_text
+    взят с живых сайтов, а не сгенерирован нами) обрывает тег раньше времени, и хвост
+    стайлшита вытекает в тело страницы как видимый текст. Разбор — docstring
+    `cssprune.guard_style_close`.
+    """
+    css_text = cssprune.guard_style_close(css_text)
     doc = make_soup(str(soup))
     head = doc.find("head")
     if head is None:
@@ -239,33 +234,9 @@ def build_html(soup, css_text):
 
 # ── шаг 3: tree-shaking через CDP ─────────────────────────────────────────────
 
-_PW = {"pw": None, "browser": None}
-
-
-def _browser():
-    if _PW["browser"] is None:
-        from playwright.sync_api import sync_playwright
-        _PW["pw"] = sync_playwright().start()
-        # Те же флаги, что в Evaluation/metrics_only/render.py: без DRM-устройств GPU-процесс
-        # Chromium уходит в crash loop и утаскивает браузер целиком.
-        _PW["browser"] = _PW["pw"].chromium.launch(args=[
-            "--disable-gpu", "--disable-gpu-compositing",
-            "--disable-software-rasterizer", "--disable-dev-shm-usage",
-        ])
-    return _PW["browser"]
-
-
-def close_browser():
-    if _PW["browser"] is not None:
-        try:
-            _PW["browser"].close()
-        finally:
-            _PW["browser"] = None
-    if _PW["pw"] is not None:
-        try:
-            _PW["pw"].stop()
-        finally:
-            _PW["pw"] = None
+# Браузер — общий (`common.render`): один lifecycle и одни флаги Chromium на все конвертеры.
+_browser = browser
+close_browser = close   # историческое имя, им закрывают браузер convert_parallel.py и compare_raw.py
 
 
 def used_css_ranges(html_text, width=RENDER_WIDTH, height=1024, timeout_ms=30000):

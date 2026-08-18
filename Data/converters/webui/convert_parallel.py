@@ -32,11 +32,16 @@ import time
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 
+# Каталог скрипта — для воркеров пула (им нужен convert_lib соседом).
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
+# Пролог доступа к общему ядру — ОДИН И ТОТ ЖЕ во всех точках входа (см. common/__init__.py).
+_CONV = os.path.dirname(_HERE)
+if _CONV not in sys.path:
+    sys.path.insert(0, _CONV)
 
-TOKENIZER_ID_DEFAULT = "Qwen/Qwen3-VL-8B-Instruct"
+from common.budget import TOKENIZER_ID_DEFAULT  # noqa: E402  — не литерал: один на трек
 
 
 # ── воркер ────────────────────────────────────────────────────────────────────

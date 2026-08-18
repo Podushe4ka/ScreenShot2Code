@@ -40,7 +40,8 @@ python convert_parallel.py --target 500 --n-workers 16   # батч
 Полная памятка приёмки — [`HANDOFF.md`](HANDOFF.md). Кратко: данные — через диск/том
 (контракт §7), не через git (`*drafting_pilot*/` в .gitignore):
 `-v <путь>/websight_drafting_pilot:/data` → SFT `load_from_disk("/data")`.
-`max_length` берётся из токен-отчёта (код p99 + картинка p99; ~6144 с запасом под конфиг 8192).
+`max_length` берётся из токен-отчёта (`--token-report`: код p99 + картинка p99). Верхняя
+граница без прогона — код p99 3 815 + потолок картинки 2048 ≈ 5 952, при рабочем окне 16384.
 
 ## Границы
 - Tailwind precompile — v4 через standalone `pytailwindcss` (без Node). Редкие кривые страницы

@@ -23,9 +23,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(REPO / "Data" / "converters" / "websight"))
+sys.path.insert(0, str(REPO / "Data" / "converters"))
 
-from convert_lib import ahash  # noqa: E402
+from common.budget import TOKENIZER_ID_DEFAULT  # noqa: E402  — не литерал: один на трек
+from common.imaging import ahash  # noqa: E402
 from renderlib import count_nodes, render_page, screenshot_stats  # noqa: E402
 from slop import names as slop_names, scan as slop_scan  # noqa: E402
 
@@ -62,7 +63,7 @@ MIN_HEIGHT, MAX_HEIGHT = 400, int(os.environ.get("SYNTH_MAX_HEIGHT", 2048))
 # Бюджет кода в токенах — из SFT/configs/gen.py: max_length 16384 = 14176 (код)
 # + 2048 (визуальные токены при MAX_PIXELS 2.10 Мп) + ~160 (промпт).
 CODE_BUDGET_TOKENS = int(os.environ.get("SYNTH_CODE_BUDGET_TOKENS", 14176))
-TOKENIZER_ID = os.environ.get("SYNTH_TOKENIZER", "Qwen/Qwen3-VL-8B-Instruct")
+TOKENIZER_ID = os.environ.get("SYNTH_TOKENIZER", TOKENIZER_ID_DEFAULT)
 
 
 def lint(raw: str, brief: dict) -> list[str]:

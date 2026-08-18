@@ -156,11 +156,19 @@ def main():
     if args.token_report:
         token_report(list(ds2), sizes)
     else:
-        # Зафиксировано на WebSight v0.2 production (пересчёт: --token-report, нужен torch).
-        print("[токены] отчёт пропущен (--token-report для пересчёта). Известные WebSight v0.2:")
-        print("[токены]   код p99≈3860, картинка p99≈1672, всего p99≈5532 -> max_length≈6144")
+        # Код от бюджета картинки не зависит — это свойство текста, число живо.
+        # А вот всё, где участвует картинка, снято при MAX_PIXELS 1.31 Мп и patch=28
+        # (потолок 1672) и после Tier A недействительно, поэтому сумму тут НЕ печатаем:
+        # выдуманный max_length хуже отсутствующего. Потолок берём из константы, а не
+        # из памяти, чтобы строка ехала вместе с бюджетом.
+        cap = qwen_image_tokens(RENDER_WIDTH, 10 ** 6)
+        print("[токены] отчёт пропущен (--token-report для пересчёта). Известное по коду:")
+        print("[токены]   код WebSight v0.2: p99≈3860")
+        print(f"[токены]   картинка: потолок при текущем бюджете = {cap} токенов "
+              f"(прежние 1672 сняты при MAX_PIXELS 1.31 Мп и patch=28 — устарели)")
+        print("[токены]   сумму и max_length считает только --token-report")
     print(f"\n=== ПЕРЕДАЧА SFT ===\nпуть: {out_dir}\nзагрузка: load_from_disk(<путь>)\n"
-          f"max_length: 6144 (WebSight v0.2; пересчёт --token-report)\n"
+          f"max_length: считается --token-report (прежние 6144 сняты до Tier A)\n"
           f"монтирование (§7): -v {out_dir}:/data")
 
 

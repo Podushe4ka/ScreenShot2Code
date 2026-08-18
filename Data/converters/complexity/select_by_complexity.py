@@ -72,7 +72,13 @@ def main():
     ap.add_argument("--hard-only", action="store_true",
                     help="ветка A/B: весь набор из p85+ (перебивает --mix)")
     ap.add_argument("--density-min", type=float, default=None,
-                    help="минимум видимых блоков на токен кода (порог раздутости)")
+                    help="минимум ВИДИМЫХ блоков на токен кода (порог раздутости). Работает "
+                         "по `density_visible`, то есть требует признаков с рендера "
+                         "(score.py --mode rendered): калибровка 0.01 снята на нём")
+    ap.add_argument("--density-min-static", type=float, default=None,
+                    help="то же, но по `density_static` (узлов на токен) — для файлов, "
+                         "посчитанных без браузера. Шкала ДРУГАЯ, порог рендера сюда не "
+                         "переносится")
     ap.add_argument("--min-ink", type=float, default=None,
                     help="минимальная доля площади, занятой контентом (не белое и не серый "
                          "плейсхолдер). Отсекает страницы-пустышки; «интересность» НЕ ловит")
@@ -106,9 +112,30 @@ def main():
     # из которого реально берём, иначе раздутые страницы сдвинут все границы.
     dropped = Counter()
     if args.density_min is not None:
+        # Порог откалиброван на ВИДИМЫХ блоках. Если во входе только статические признаки,
+        # ключа `density_visible` там нет вообще — раньше барьер в этом случае молча
+        # пропускал всё (`f.get("density") or 0` на отсутствующем ключе давало 0 у ВСЕХ,
+        # то есть либо выкашивало набор, либо, при другом порядке ключей, не резало ничего).
+        # Теперь это явная ошибка с подсказкой.
+        n_have = sum(1 for f in feats if f.get("density_visible") is not None)
+        if not n_have:
+            modes = sorted({f.get("features_mode") or "?" for f in feats})
+            raise SystemExit(
+                f"--density-min считает по `density_visible`, а во входе его нет "
+                f"(features_mode={modes}). Пересчитай признаки рендером: "
+                f"score.py --mode rendered. Либо, если признаки заведомо статические, "
+                f"бери --density-min-static со СВОИМ порогом (шкалы разные: в статике "
+                f"числитель — узлы, в рендере — видимые блоки).")
+        if n_have < len(feats):
+            print(f"[отбор] ⚠ у {len(feats) - n_have} из {len(feats)} страниц нет "
+                  f"`density_visible` (рендер не удался) — барьер их снимает")
         before = len(feats)
-        feats = [f for f in feats if (f.get("density") or 0) >= args.density_min]
+        feats = [f for f in feats if (f.get("density_visible") or 0) >= args.density_min]
         dropped["density"] = before - len(feats)
+    if args.density_min_static is not None:
+        before = len(feats)
+        feats = [f for f in feats if (f.get("density_static") or 0) >= args.density_min_static]
+        dropped["density_static"] = before - len(feats)
     # Страница «без стилей»: узлов много, а оформления нет. У WebUI это не редкость —
     # у части источников колонка `css` не содержит стайлшита компонентов, и конвертер
     # честно отдаёт неоформленную страницу (сам он верен источнику: сырой рендер такой же).
@@ -140,9 +167,24 @@ def main():
     # Плоские 6000 на код одинаково режут и ту и другую, хотя у первой в окне остаётся
     # заметно больше места.
     if args.max_total_tokens is not None:
+        # ⚠ БЕЗ МОЛЧАЛИВОГО ФОЛБЭКА. Раньше здесь стояло
+        # `f.get("tokens_total") or f.get("tokens_code")`, и на наборах, где `tokens_total`
+        # никто не заполнил (WebCode2M: convert_candidates.py его не считал), барьер
+        # сравнивал код-БЕЗ-картинки с бюджетом на код+картинку. То есть один и тот же
+        # флаг означал для двух корпусов разное, а разницу в 0.9–2k токенов никто не видел.
+        n_have = sum(1 for f in feats if f.get("tokens_total"))
+        if not n_have:
+            raise SystemExit(
+                "--max-total-tokens считает по `tokens_total` (код + картинка), а во входе "
+                "его нет ни у одной страницы. Он появляется вместе с геометрией рендера "
+                "(score.py --mode rendered) или из конвертера. Если нужен потолок только "
+                "на код — это --max-tokens, и бюджет тогда бери меньше на размер картинки "
+                "(до 2048 токенов).")
+        if n_have < len(feats):
+            print(f"[отбор] ⚠ у {len(feats) - n_have} из {len(feats)} страниц нет "
+                  f"`tokens_total` — барьер их снимает, а не пропускает по коду")
         before = len(feats)
-        feats = [f for f in feats
-                 if (f.get("tokens_total") or f.get("tokens_code") or 0) <= args.max_total_tokens]
+        feats = [f for f in feats if (f.get("tokens_total") or 0) <= args.max_total_tokens]
         dropped["tokens_total"] = before - len(feats)
     # Геометрия скриншота. `render.py` снимает full_page, то есть ВСЮ прокручиваемую
     # область — включая горизонтальное переполнение. Замерено на конвертации: страница
@@ -217,7 +259,7 @@ def summarize(picked, key):
     print("\n  что отобрано (p50 / p90 / p99):")
     for k in ("nodes", "depth", "css_decls", "columns", "tokens_code"):
         print(f"    {k:14s} {q(k,.5):8.0f} {q(k,.9):8.0f} {q(k,.99):8.0f}")
-    dens = [f.get("density") for f in picked if f.get("density")]
+    dens = [f.get("density_visible") for f in picked if f.get("density_visible")]
     if dens:
         dens.sort()
         print(f"    {'density':14s} {dens[len(dens)//2]:8.4f}")

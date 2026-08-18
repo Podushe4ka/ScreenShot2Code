@@ -33,13 +33,21 @@ import io
 import json
 import os
 import random
+import sys
 
 import numpy as np
 from PIL import Image
 
-import convert_lib as cl
+# Пролог доступа к общему ядру — ОДИН И ТОТ ЖЕ во всех точках входа (см. common/__init__.py).
+# Явно, а не через побочный эффект `import convert_lib`: порядок импортов не должен решать,
+# найдётся ли общее ядро.
+_CONV = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _CONV not in sys.path:
+    sys.path.insert(0, _CONV)
 
-RENDER_WIDTH = 1280
+import convert_lib as cl  # noqa: E402
+from common.budget import RENDER_WIDTH  # noqa: E402  — ширина одна на трек
+from common.render import CHROMIUM_ARGS  # noqa: E402  — и флаги браузера тоже
 
 
 def render_offline(browser, html_text, width=RENDER_WIDTH, timeout_ms=30000):
@@ -152,7 +160,9 @@ def main():
     from playwright.sync_api import sync_playwright
     out_rows = []
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(args=["--disable-gpu", "--disable-dev-shm-usage"])
+        # Флаги общие: свой урезанный набор здесь уже приводил к тому, что один и тот же
+        # прогон в контейнере падал или нет в зависимости от того, чей код поднял браузер.
+        browser = pw.chromium.launch(args=CHROMIUM_ARGS)
         for i, row in enumerate(rows, 1):
             sid = row["sample_id"]
             rec = converted[sid]

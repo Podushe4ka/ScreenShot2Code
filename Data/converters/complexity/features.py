@@ -10,7 +10,8 @@
 
 ДВА УРОВНЯ, И ЭТО НЕ ЛЕНЬ, А АРИФМЕТИКА.
   • `static_features(html)` — без браузера, ~1 мс на страницу. Нужен, чтобы просеять
-    кандидатов WebCode2M: их ~200 тысяч, и рендерить их все нельзя ни на каком железе.
+    кандидатов WebCode2M: их ~185 тысяч при рабочем пороге 300 узлов (см. README,
+    «Калибровка порогов»), и рендерить их все нельзя ни на каком железе.
   • `rendered_features(html_path)` — через Playwright, ~0.3–1 с на страницу. Даёт то, чего
     в исходнике нет в принципе: сколько узлов РЕАЛЬНО видно, в сколько колонок легла
     страница, какая доля блоков перекрывается. План требует считать сложность по
@@ -19,19 +20,23 @@
 Обе функции возвращают dict с ОДИНАКОВЫМИ ключами там, где признак определён в обоих
 режимах, плюс `render_ok` — чтобы отчёт всегда мог сказать, на чём именно посчитан отбор.
 """
-import math
 import os
-import re
 import sys
 
 from bs4 import BeautifulSoup
 
+# Пролог доступа к общему ядру — ОДИН И ТОТ ЖЕ во всех точках входа (см. common/__init__.py).
+# Он же открывает соседние пакеты конвертеров: cssprune живёт у webui.
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_WEBUI = os.path.join(_HERE, "..", "webui")
-if _WEBUI not in sys.path:
-    sys.path.insert(0, _WEBUI)
+_CONV = os.path.dirname(_HERE)
+if _CONV not in sys.path:
+    sys.path.insert(0, _CONV)
+if os.path.join(_CONV, "webui") not in sys.path:
+    sys.path.insert(0, os.path.join(_CONV, "webui"))
 
 import cssprune  # noqa: E402  — свой разбор CSS с оффсетами, см. webui/cssprune.py
+from common.budget import qwen_image_tokens  # noqa: E402
+from common.render import browser, close  # noqa: E402
 
 # Признаки, по которым строится сводная сложность. Веса — не подгонка под метрику, а
 # расстановка приоритетов: структура страницы (узлы/глубина/разнообразие тегов) весит
@@ -109,11 +114,17 @@ def static_features(html_text, tokens_code=None):
         "overlap_frac": 0.0,
         "blocks_visible": 0,
         "render_ok": False,
+        "features_mode": "static",
     }
     f["text_len"] = len(soup.get_text(" ", strip=True))
     if tokens_code:
         f["tokens_code"] = tokens_code
-        f["density"] = f["nodes"] / max(1, tokens_code)
+        # ⚠ ДВЕ РАЗНЫЕ ПЛОТНОСТИ, И ЭТО НАМЕРЕННО РАЗНЫЕ КЛЮЧИ.
+        # Здесь, без браузера, «блок» неотличим от обёртки, которая ничего не рисует,
+        # поэтому в числителе узлы. В рендере — реально видимые блоки, а их в разы меньше.
+        # Раньше оба числа писались под ОДНИМ ключом `density`, и порог `--density-min 0.01`
+        # (откалиброванный на рендере) на статическом файле не отсекал ничего — молча.
+        f["density_static"] = f["nodes"] / max(1, tokens_code)
     return f
 
 
@@ -197,37 +208,16 @@ _PROBE_JS = r"""
 }
 """
 
-_PW = {"pw": None, "browser": None}
-
-
-def _browser():
-    if _PW["browser"] is None:
-        from playwright.sync_api import sync_playwright
-        _PW["pw"] = sync_playwright().start()
-        _PW["browser"] = _PW["pw"].chromium.launch(args=[
-            "--disable-gpu", "--disable-gpu-compositing",
-            "--disable-software-rasterizer", "--disable-dev-shm-usage",
-        ])
-    return _PW["browser"]
-
-
-def close_browser():
-    if _PW["browser"] is not None:
-        try:
-            _PW["browser"].close()
-        finally:
-            _PW["browser"] = None
-    if _PW["pw"] is not None:
-        try:
-            _PW["pw"].stop()
-        finally:
-            _PW["pw"] = None
+# Браузер — общий (`common.render`): один lifecycle и одни флаги Chromium на все конвертеры.
+_browser = browser
+close_browser = close   # историческое имя, им закрывает браузер score.py
 
 
 def rendered_features(html_text, tokens_code=None, width=1280, height=1024, timeout_ms=30000):
     """Признаки по ОТРЕНДЕРЕННОЙ странице. При сбое рендера падает обратно на статику,
     помечая это `render_ok=False` — страница не выпадает из отбора молча."""
     base = static_features(html_text, tokens_code=tokens_code)
+    base["features_mode"] = "rendered"
     ctx = _browser().new_context(viewport={"width": width, "height": height},
                                  device_scale_factor=1)
     try:
@@ -249,8 +239,16 @@ def rendered_features(html_text, tokens_code=None, width=1280, height=1024, time
     if tokens_code:
         # ПЛОТНОСТЬ — видимых блоков на токен кода. Считается по рендеру, иначе теряет
         # смысл: в исходнике «блок» неотличим от обёртки, которая ничего не рисует.
-        base["density"] = base["blocks_visible"] / max(1, tokens_code)
+        base["density_visible"] = base["blocks_visible"] / max(1, tokens_code)
         base["tokens_code"] = tokens_code
+        # Бюджет окна считается по СУММЕ «код + картинка»: визуальная часть зависит от
+        # реального размера страницы (один экран ~900 токенов, высокая упирается в 2048).
+        # Это ЗАПАСНОЙ источник числа — для входов, где токенов нет вовсе (--jsonl от
+        # scan_complex.py). Если `tokens_total` пришёл от конвертера, score.py оставит его:
+        # там w/h из реального PNG, а тут — размеры документа на вьюпорте.
+        if base.get("page_w") and base.get("page_h"):
+            base["tokens_img"] = qwen_image_tokens(base["page_w"], base["page_h"])
+            base["tokens_total"] = tokens_code + base["tokens_img"]
     return base
 
 

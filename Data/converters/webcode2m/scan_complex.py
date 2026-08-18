@@ -3,19 +3,25 @@
 
 ЗАЧЕМ ОТДЕЛЬНЫЙ СКАН. Сложность считается по ОТРЕНДЕРЕННОЙ странице
 (`../complexity/features.py`), а рендер стоит ~0.3–1 с. Кандидатов в WebCode2M порядка
-200 тысяч — отрендерить их все нельзя ни на каком доступном железе. Поэтому здесь дешёвая
-статика без браузера: она отбирает шортлист (по замеру плана — 7.9% корпуса имеют >=400
-узлов), и уже он идёт в конвертер и в рендер-скоринг.
+185 тысяч — отрендерить их все нельзя ни на каком доступном железе. Поэтому здесь дешёвая
+статика без браузера: она отбирает шортлист, и уже он идёт в конвертер и в рендер-скоринг.
+
+ПОРОГ 300, А НЕ 400. План задавал ориентир «>=400 узлов у 7.9% корпуса», но перемер на
+самом корпусе (2 777 страниц, по row-group из 30 шардов) даёт другое: p50 177 / p90 281 /
+p99 414, и `>=400` набирает лишь **1.22%**. Заявленный планом выход ~8% даёт порог
+**300 узлов** (7.20%) — он и стоит по умолчанию. То есть воспроизводится ВЫХОД из плана,
+а не абсолютный порог; замер и таблица — в `../complexity/README.md` («Калибровка порогов»).
+Отсюда и оценка кандидатов: 2.56M строк x 7.20% ~ 185k при пороге 300 и всего ~31k при 400.
 
 ЧИТАЕМ ТОЛЬКО КОЛОНКУ `text`. В parquet 93% веса — колонка `image` (44.8 МБ против 0.55 МБ
 на текст в замеренной row-group). Картинку мы всё равно рендерим свою, поэтому проекция
 колонок превращает 51 ГБ корпуса в ~600 МБ трафика на 190 тысяч строк.
 
 Локальный кэш (`~/.cache/huggingface/.../webcode2m_purified`) содержит только 30 шардов из
-100 — 37 168 строк. Этого мало (7.9% от 37k = ~2.9k страниц), поэтому по умолчанию
+100 — 37 168 строк. Этого мало (7.20% от 37k = ~2.7k страниц), поэтому по умолчанию
 досканиваем с хаба: `--source auto` берёт сначала локальные шарды, потом хабовые.
 
-    python scan_complex.py --out candidates.jsonl.gz --scan 190000 --min-nodes 400
+    python scan_complex.py --out candidates.jsonl.gz --scan 190000
 """
 import argparse
 import glob
@@ -27,10 +33,12 @@ import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
 
+# Пролог доступа к общему ядру и соседним пакетам конвертеров (см. common/__init__.py).
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_COMPLEXITY = os.path.join(_HERE, "..", "complexity")
-if _COMPLEXITY not in sys.path:
-    sys.path.insert(0, _COMPLEXITY)
+_CONV = os.path.dirname(_HERE)
+for _p in (_CONV, os.path.join(_CONV, "complexity")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 REPO = "datasets/xcodemind/webcode2m_purified"
 LOCAL_GLOB = os.path.expanduser(
@@ -110,8 +118,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", required=True, help="куда писать кандидатов (.jsonl.gz)")
     ap.add_argument("--scan", type=int, default=190000, help="сколько строк просмотреть")
-    ap.add_argument("--min-nodes", type=int, default=400,
-                    help="порог сложности по узлам (замер плана: >=400 у 7.9%% корпуса)")
+    ap.add_argument("--min-nodes", type=int, default=300,
+                    help="порог сложности по узлам. 300 = перемеренный порог с выходом 7.20%%; "
+                         "плановые >=400 дают на этом корпусе лишь 1.22%% (см. complexity/README.md)")
     ap.add_argument("--max-candidates", type=int, default=0, help="хватит кандидатов (0 = без предела)")
     ap.add_argument("--source", choices=["auto", "local", "hub"], default="auto")
     ap.add_argument("-j", "--n-workers", type=int, default=6)

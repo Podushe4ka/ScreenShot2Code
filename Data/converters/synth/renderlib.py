@@ -11,13 +11,13 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "Evaluation" / "metrics_only"))
-sys.path.insert(0, str(REPO / "Data" / "converters" / "websight"))
+sys.path.insert(0, str(REPO / "Data" / "converters"))
 
 import numpy as np  # noqa: E402
 from PIL import Image as PILImage  # noqa: E402
 
 import render as ev_render  # noqa: E402
-from convert_lib import render_full  # noqa: E402
+from common.render import render_full  # noqa: E402
 
 
 def count_nodes(html_text: str) -> int:

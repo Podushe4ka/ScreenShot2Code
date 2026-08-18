@@ -49,11 +49,19 @@ def grouped_split(ds: Dataset, group_key: str = "page_id",
         # Доля групп этого профиля пропорциональна его доле в датасете.
         share = sum(len(groups[g]) for g in gs) / len(ds)
         want = max(1, round(target * share))
+        # ⚠ Счётчик ПОПРОФИЛЬНЫЙ. Раньше здесь сравнивался общий `n_val` с профильным
+        # `want`, и после первого же профиля общий счётчик перекрывал квоту всех
+        # следующих — они не давали в валидацию НИ ОДНОЙ группы. Стратификация, ради
+        # которой всё и написано (редкая задача не должна пропасть из валидации,
+        # §1a контракта), при этом молча не работала: валидация набиралась из одного
+        # профиля. `want >= 1`, поэтому теперь каждый профиль даёт хотя бы одну группу.
+        taken = 0
         for g in gs:
-            if n_val >= want:
+            if taken >= want:
                 break
             val_groups.append(g)
-            n_val += len(groups[g])
+            taken += len(groups[g])
+        n_val += taken
 
     val_set = set(val_groups)
     val_idx = [i for g in val_groups for i in groups[g]]

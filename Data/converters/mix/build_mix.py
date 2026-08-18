@@ -21,7 +21,6 @@
 import argparse
 import json
 import os
-import sys
 
 from datasets import Dataset, Features, Image, Sequence, Value, concatenate_datasets
 
